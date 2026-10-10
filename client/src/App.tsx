@@ -7,13 +7,13 @@ import {
 } from "./auth/AuthProvider";
 import ConnectScreen from "./auth/ConnectScreen";
 import Dashboard from "./dashboard/Dashboard";
-import type { DashboardData, ListeningSession } from "./dashboard/model";
+import type { DashboardData, ListeningSession, TimeRange } from "./dashboard/model";
 import DotField from "./ui/DotField";
 
 function AuthGate() {
   const { user } = useAuth();
   const demo = import.meta.env.DEV && new URLSearchParams(window.location.search).has("demo");
-  const [demoContent, setDemoContent] = useState<{ data: DashboardData; sessions: ListeningSession[]; user: User } | null>(null);
+  const [demoContent, setDemoContent] = useState<{ data: DashboardData; sessions: Record<TimeRange, ListeningSession[]>; user: User } | null>(null);
 
   useEffect(() => {
     if (!demo) return;

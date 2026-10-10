@@ -75,15 +75,16 @@ function RankedAlbums({ albums }: { albums: Album[] }) {
   return <ol className="space-y-2">{albums.map((album, index) => <li key={album.id}><a href={album.externalUrl} target="_blank" rel="noreferrer" className="group flex items-center gap-3 rounded-xl p-2 transition hover:bg-surface-raised focus-visible:outline-2 focus-visible:outline-accent"><span className="w-5 text-center text-xs font-semibold text-muted">{index + 1}</span><Artwork src={album.imageUrl} alt={album.name} /><span className="min-w-0"><span className="block truncate text-sm font-semibold text-fg group-hover:text-accent">{album.name}</span><span className="block truncate text-xs text-muted">{album.artists.join(", ")}</span></span></a></li>)}</ol>;
 }
 
-export default function Dashboard({ initialData, initialSessions, demoUser }: { initialData?: DashboardData; initialSessions?: ListeningSession[]; demoUser?: User }) {
+export default function Dashboard({ initialData, initialSessions, demoUser }: { initialData?: DashboardData; initialSessions?: Record<TimeRange, ListeningSession[]>; demoUser?: User }) {
   const { user, authedPost, logout, disconnect } = useAuth();
   const [page, setPage] = useState<Page>("dashboard");
   const [range, setRange] = useState<TimeRange>("medium_term");
   const [data, setData] = useState<DashboardData | null>(initialData ?? null);
   const [error, setError] = useState("");
-  const [sessions, setSessions] = useState<ListeningSession[] | null>(initialSessions ?? null);
-  const [sessionsError, setSessionsError] = useState("");
+  const [sessions, setSessions] = useState<Partial<Record<TimeRange, ListeningSession[]>>>(initialSessions ?? {});
+  const [sessionsError, setSessionsError] = useState<{ range: TimeRange; message: string } | null>(null);
   const activeUser = demoUser ?? user;
+  const selectedSessions = sessions[range];
 
   useEffect(() => {
     if (initialData) return;
@@ -97,15 +98,15 @@ export default function Dashboard({ initialData, initialSessions, demoUser }: { 
   }, [authedPost, initialData]);
 
   useEffect(() => {
-    if (initialSessions !== undefined || page !== "sessions" || sessions !== null) return;
+    if (initialSessions !== undefined || page !== "sessions" || selectedSessions !== undefined) return;
     let active = true;
-    void authedPost("/api/sessions").then((response) => {
+    void authedPost("/api/sessions", { range }).then((response) => {
       if (!active) return;
-      if (!isSessionsData(response)) setSessionsError(response.error === "offline" ? "MusiStats is temporarily unavailable." : "Your listening sessions could not be loaded.");
-      else setSessions(response.sessions);
+      if (!isSessionsData(response)) setSessionsError({ range, message: response.error === "offline" ? "MusiStats is temporarily unavailable." : "Your listening sessions could not be loaded." });
+      else setSessions((current) => ({ ...current, [range]: response.sessions }));
     });
     return () => { active = false; };
-  }, [authedPost, initialSessions, page, sessions]);
+  }, [authedPost, initialSessions, page, range, selectedSessions]);
 
   async function deleteAccount() {
     if (!window.confirm("Disconnect Spotify and permanently delete all imported MusiStats data?")) return;
@@ -138,9 +139,9 @@ export default function Dashboard({ initialData, initialSessions, demoUser }: { 
     </aside>
 
     <div className="mx-auto w-full max-w-7xl px-5 pb-16 pt-8 sm:px-8 lg:px-10 lg:pt-10">
-      <section className="mb-8 flex flex-col justify-between gap-5 sm:flex-row sm:items-end"><div><p className="mb-2 text-xs font-semibold uppercase tracking-[0.2em] text-accent">Your listening</p><h1 className="text-3xl font-bold tracking-[-0.04em] text-fg sm:text-4xl">{page === "dashboard" ? `Welcome back, ${activeUser?.displayName}` : contentTitle}</h1><p className="mt-2 text-sm text-muted">{page === "dashboard" ? "Your last 24 hours" : page === "sessions" ? "Grouped plays with 45 minutes or less between tracks" : data?.updatedAt ? `Updated ${new Date(data.updatedAt).toLocaleString()}` : "Your Spotify snapshot"}</p></div>{page !== "dashboard" && page !== "sessions" && <SegmentedControl ariaLabel="Stats time range" options={(Object.keys(RANGE_LABELS) as TimeRange[]).map((value) => ({ value, label: RANGE_LABELS[value] }))} value={range} onChange={setRange} />}</section>
+      <section className="mb-8 flex flex-col justify-between gap-5 sm:flex-row sm:items-end"><div><p className="mb-2 text-xs font-semibold uppercase tracking-[0.2em] text-accent">Your listening</p><h1 className="text-3xl font-bold tracking-[-0.04em] text-fg sm:text-4xl">{page === "dashboard" ? `Welcome back, ${activeUser?.displayName}` : contentTitle}</h1><p className="mt-2 text-sm text-muted">{page === "dashboard" ? "Your last 24 hours" : page === "sessions" ? "Grouped plays with 45 minutes or less between tracks" : data?.updatedAt ? `Updated ${new Date(data.updatedAt).toLocaleString()}` : "Your Spotify snapshot"}</p></div>{page !== "dashboard" && <SegmentedControl ariaLabel="Stats time range" options={(Object.keys(RANGE_LABELS) as TimeRange[]).map((value) => ({ value, label: RANGE_LABELS[value] }))} value={range} onChange={setRange} />}</section>
 
-      {error ? <div role="alert" className="rounded-2xl border border-error/30 bg-error/10 px-5 py-4 text-sm text-error">{error}</div> : !data ? <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3" aria-label="Loading your stats">{[0, 1, 2, 3, 4].map((item) => <div key={item} className="h-40 animate-pulse rounded-2xl border border-border-app bg-surface" />)}</div> : <AnimatePresence mode="wait"><motion.div key={`${page}-${range}`} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.16 }}>{page === "dashboard" ? <><dl className="grid gap-6 lg:grid-cols-2">{stats.map((stat, index) => <StatCard key={stat.label} {...stat} fullWidth={index === 0} />)}</dl><div className="mt-6 grid gap-6 lg:grid-cols-2"><ActivityChart title="Time listened over the last 24 hours" values={last24Hours.minutesByHour} emptyMessage="Hourly listening time is not available yet." /><ActivityChart title="Listening distribution over the last 24 hours" values={last24Hours.playsByHour} emptyMessage="No listening activity in the last 24 hours." /></div></> : page === "sessions" ? sessionsError ? <div role="alert" className="rounded-2xl border border-error/30 bg-error/10 px-5 py-4 text-sm text-error">{sessionsError}</div> : sessions === null ? <div className="space-y-4" aria-label="Loading your listening sessions">{[0, 1].map((item) => <div key={item} className="h-24 animate-pulse rounded-2xl border border-border-app bg-surface" />)}</div> : <SessionList sessions={sessions} /> : <section className="rounded-2xl border border-border-app/80 bg-surface/95 p-5 shadow-xl shadow-black/20 sm:p-6"><div className="mb-5 flex items-center justify-between"><h2 className="text-lg font-semibold text-fg">{contentTitle}</h2><span className="text-xs text-muted">{RANGE_LABELS[range]}</span></div>{page === "songs" && <RankedTracks tracks={selected?.tracks ?? []} />}{page === "artists" && <RankedArtists artists={selected?.artists ?? []} />}{page === "albums" && <RankedAlbums albums={selected?.albums ?? []} />}</section>}</motion.div></AnimatePresence>}
+      {error ? <div role="alert" className="rounded-2xl border border-error/30 bg-error/10 px-5 py-4 text-sm text-error">{error}</div> : !data ? <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3" aria-label="Loading your stats">{[0, 1, 2, 3, 4].map((item) => <div key={item} className="h-40 animate-pulse rounded-2xl border border-border-app bg-surface" />)}</div> : <AnimatePresence mode="wait"><motion.div key={`${page}-${range}`} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.16 }}>{page === "dashboard" ? <><dl className="grid gap-6 lg:grid-cols-2">{stats.map((stat, index) => <StatCard key={stat.label} {...stat} fullWidth={index === 0} />)}</dl><div className="mt-6 grid gap-6 lg:grid-cols-2"><ActivityChart title="Time listened over the last 24 hours" values={last24Hours.minutesByHour} emptyMessage="Hourly listening time is not available yet." /><ActivityChart title="Listening distribution over the last 24 hours" values={last24Hours.playsByHour} emptyMessage="No listening activity in the last 24 hours." /></div></> : page === "sessions" ? sessionsError?.range === range && selectedSessions === undefined ? <div role="alert" className="rounded-2xl border border-error/30 bg-error/10 px-5 py-4 text-sm text-error">{sessionsError.message}</div> : selectedSessions === undefined ? <div className="space-y-4" aria-label="Loading your listening sessions">{[0, 1].map((item) => <div key={item} className="h-24 animate-pulse rounded-2xl border border-border-app bg-surface" />)}</div> : <SessionList sessions={selectedSessions} /> : <section className="rounded-2xl border border-border-app/80 bg-surface/95 p-5 shadow-xl shadow-black/20 sm:p-6"><div className="mb-5 flex items-center justify-between"><h2 className="text-lg font-semibold text-fg">{contentTitle}</h2><span className="text-xs text-muted">{RANGE_LABELS[range]}</span></div>{page === "songs" && <RankedTracks tracks={selected?.tracks ?? []} />}{page === "artists" && <RankedArtists artists={selected?.artists ?? []} />}{page === "albums" && <RankedAlbums albums={selected?.albums ?? []} />}</section>}</motion.div></AnimatePresence>}
     </div>
   </main>;
 }
