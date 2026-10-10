@@ -1,5 +1,5 @@
 import type { User } from "../auth/AuthProvider";
-import type { Album, Artist, DashboardData, ListeningSession, StatsData, TimeRange, Track } from "./model";
+import type { Album, Artist, DashboardData, ListeningSession, StatsData, TasteReplayFrame, TimeRange, Track } from "./model";
 
 function artwork(letter: string, color: string) {
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" fill="${color}"/><circle cx="72" cy="28" r="32" fill="#fff" opacity=".12"/><text x="50" y="64" text-anchor="middle" font-family="system-ui" font-size="42" font-weight="700" fill="#fff">${letter}</text></svg>`;
@@ -128,4 +128,20 @@ export const DEMO_STATS: Record<TimeRange, StatsData> = {
   short_term: demoStats,
   medium_term: demoStats,
   long_term: demoStats,
+};
+
+const demoReplay: TasteReplayFrame[] = [
+  [["indie pop", 0.4], ["dream pop", 0.3], ["alternative rock", 0.2], ["synthwave", 0.1]],
+  [["indie pop", 0.3], ["dream pop", 0.2], ["alternative rock", 0.35], ["synthwave", 0.15]],
+  [["indie pop", 0.2], ["dream pop", 0.15], ["alternative rock", 0.25], ["synthwave", 0.4]],
+  [["indie pop", 0.3], ["dream pop", 0.35], ["alternative rock", 0.2], ["synthwave", 0.15]],
+].map((genres, index) => ({
+  capturedAt: new Date(demoNow - (3 - index) * 7 * 24 * 60 * 60 * 1000).toISOString(),
+  genres: genres.map(([name, weight]) => ({ name: name as string, weight: weight as number })),
+}));
+
+export const DEMO_TASTE_REPLAY: Record<TimeRange, TasteReplayFrame[]> = {
+  short_term: demoReplay,
+  medium_term: demoReplay,
+  long_term: demoReplay,
 };

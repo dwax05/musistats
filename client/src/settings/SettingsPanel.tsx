@@ -4,6 +4,7 @@ import { isActiveImport, isCreatedImportData, isImportData, isImportsData, isImp
 
 type SettingsPanelProps = {
   authedPost: (url: string, body?: unknown) => Promise<ApiResponse>;
+  onHistoryChanged: () => void;
 };
 
 function messageFor(error: string) {
@@ -44,7 +45,7 @@ function ImportRow({ imported, onCancel, onDelete, busy, confirmingDelete }: { i
   return <li className="rounded-2xl border border-border-app/80 bg-surface-raised/50 p-4 sm:p-5"><div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start"><div><div className="flex flex-wrap items-center gap-2"><h3 className="text-sm font-semibold text-fg">{sourceLabel(imported.sourceKinds)}</h3><span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${imported.status === "completed" ? "bg-accent/15 text-accent" : imported.status === "failed" ? "bg-error/10 text-error" : "bg-surface text-muted"}`}>{formatStatus(imported.status)}</span></div><p className="mt-1 text-xs text-muted">{formatRange(imported.dateRange)} · Started {new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", year: "numeric" }).format(new Date(imported.createdAt))}</p></div>{active ? <button type="button" onClick={() => onCancel(imported.id)} disabled={busy} className="rounded-lg border border-border-app px-3 py-2 text-sm font-semibold text-fg transition hover:bg-surface disabled:cursor-not-allowed disabled:opacity-60">Cancel import</button> : cancelled ? <button type="button" aria-label={deleteLabel} title={deleteLabel} onClick={() => onDelete(imported.id)} disabled={busy} className={`grid h-9 w-9 place-items-center ${deleteClass}`}><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-4 w-4"><path d="M4 7h16M10 11v6m4-6v6M9 7l1-2h4l1 2m-9 0 1 13h10l1-13" /></svg></button> : imported.status === "completed" ? <button type="button" onClick={() => onDelete(imported.id)} disabled={busy} className={deleteClass}>{deleteLabel}</button> : null}</div><div className="mt-4 grid grid-cols-3 gap-3 border-t border-border-app pt-4 text-xs"><p><span className="block font-semibold text-fg">{imported.counts.tracksImported.toLocaleString()}</span><span className="text-muted">added</span></p><p><span className="block font-semibold text-fg">{imported.counts.duplicates.toLocaleString()}</span><span className="text-muted">duplicates</span></p><p><span className="block font-semibold text-fg">{imported.counts.skipped.toLocaleString()}</span><span className="text-muted">skipped</span></p></div>{imported.failureCode && <p className="mt-4 text-xs text-error">Import failed: {imported.failureCode.replace(/_/g, " ")}.</p>}</li>;
 }
 
-export default function SettingsPanel({ authedPost }: SettingsPanelProps) {
+export default function SettingsPanel({ authedPost, onHistoryChanged }: SettingsPanelProps) {
   const [imports, setImports] = useState<ImportSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
@@ -74,13 +75,16 @@ export default function SettingsPanel({ authedPost }: SettingsPanelProps) {
     async function poll() {
       const response = await authedPost("/api/imports/spotify-history/status", { importId: activeImportId });
       if (!active) return;
-      if (isImportData(response)) updateImport(response.import);
+      if (isImportData(response)) {
+        updateImport(response.import);
+        if (response.import.status === "completed") onHistoryChanged();
+      }
       else setError(messageFor(response.error));
     }
     void poll();
     const intervalId = window.setInterval(() => void poll(), 1500);
     return () => { active = false; window.clearInterval(intervalId); };
-  }, [activeImportId, authedPost, updateImport]);
+  }, [activeImportId, authedPost, onHistoryChanged, updateImport]);
 
   useEffect(() => {
     if (!confirmingDeleteId) return;
@@ -102,6 +106,7 @@ export default function SettingsPanel({ authedPost }: SettingsPanelProps) {
       return;
     }
     updateImport(pendingImport(response.import));
+    onHistoryChanged();
     void loadImports();
   }
 
@@ -129,6 +134,7 @@ export default function SettingsPanel({ authedPost }: SettingsPanelProps) {
       return;
     }
     setImports((current) => current.filter((imported) => imported.id !== importId));
+    onHistoryChanged();
   }
 
   const importing = uploading || Boolean(activeImportId);

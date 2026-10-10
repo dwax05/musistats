@@ -5,6 +5,7 @@ import { registerDashboardRoutes } from "./dashboard/routes";
 import { registerSessionRoutes } from "./sessions/routes";
 import { registerStatsRoutes } from "./stats/routes";
 import { registerImportRoutes } from "./imports/routes";
+import { registerTasteRoutes } from "./taste/routes";
 
 // Composition root — each feature exports register*Routes(app, db).
 export function registerRoutes(app: Express, db: Db) {
@@ -13,4 +14,5 @@ export function registerRoutes(app: Express, db: Db) {
   registerSessionRoutes(app, db);
   registerStatsRoutes(app, db);
   registerImportRoutes(app, db);
+  registerTasteRoutes(app, db);
 }

@@ -14,6 +14,8 @@ import {
   type TrackSummary,
 } from "./client";
 import { ensureImportIndexes } from "../imports/jobs";
+import { getSpotifyGenresByArtistName } from "./genres";
+import { normalizeForFingerprint } from "../imports/model";
 
 type SpotifyUser = {
   _id: ObjectId;
@@ -31,6 +33,7 @@ export async function ensureSpotifyIndexes(db: Db) {
     db.collection("RecentPlays").createIndex({ userId: 1, playedAt: -1 }),
     db.collection("RecentPlays").createIndex({ userId: 1, trackId: 1, playedAt: 1 }, { unique: true }),
     db.collection("TopSnapshots").createIndex({ userId: 1, capturedDay: -1 }, { unique: true }),
+    db.collection("ArtistNameGenreCache").createIndex({ normalizedName: 1 }, { unique: true }),
     ensureImportIndexes(db),
   ]);
 }
@@ -84,10 +87,29 @@ async function syncConnectedUser(db: Db, user: SpotifyUser, suppliedAccessToken?
       ]);
       return [range, { artists, tracks: tracks.map(({ album: _album, ...track }) => track), albums: rankTopAlbums(tracks) }] as const;
     }));
-    const top = Object.fromEntries(entries) as TopItems;
+    const artists = entries.flatMap(([, items]) => items.artists);
+    const genresByArtist = await getSpotifyGenresByArtistName(
+      db,
+      artists.map((artist) => artist.name),
+      async () => accessToken,
+      artists,
+    );
+    const top = Object.fromEntries(entries.map(([range, items]) => [
+      range,
+      {
+        ...items,
+        artists: items.artists.map((artist) => ({
+          ...artist,
+          genres: genresByArtist.get(normalizeForFingerprint(artist.name)) ?? artist.genres ?? [],
+        })),
+      },
+    ])) as TopItems;
     await db.collection("TopSnapshots").updateOne(
       { userId: user._id.toString(), capturedDay },
-      { $set: { userId: user._id.toString(), capturedDay, capturedAt: new Date(), top } },
+      {
+        $set: { userId: user._id.toString(), capturedDay, capturedAt: new Date(), top },
+        $unset: { tasteReplay: "", tasteReplayProvider: "" },
+      },
       { upsert: true },
     );
   }
