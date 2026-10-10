@@ -23,6 +23,7 @@ describe("dashboard response validation", () => {
     expect(summarizeLast24Hours(recent, now)).toMatchObject({
       songs: 2,
       minutes: null,
+      minutesComplete: false,
       artists: 2,
       topArtist: { name: "Artist A", imageUrl: null },
       topTrack: { name: "Song A", imageUrl: null },

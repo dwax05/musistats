@@ -32,6 +32,7 @@ export function summarizeLast24Hours(plays: DashboardPlay[]) {
   const tracks = new Map<string, { count: number; imageUrl: string | null }>();
   const minutesByHour = Array.from({ length: 24 }, () => 0);
   let totalDurationMs = 0;
+  let hasKnownDuration = false;
   let hasUnknownDuration = false;
 
   for (const play of plays) {
@@ -53,6 +54,7 @@ export function summarizeLast24Hours(plays: DashboardPlay[]) {
       hasUnknownDuration = true;
       continue;
     }
+    hasKnownDuration = true;
     totalDurationMs += durationMs;
     minutesByHour[play.playedAt.getUTCHours()]! += durationMs / 60000;
   }
@@ -66,7 +68,8 @@ export function summarizeLast24Hours(plays: DashboardPlay[]) {
 
   return {
     songs: plays.length,
-    minutes: completeDuration ? Math.round(totalDurationMs / 60000) : null,
+    minutes: hasKnownDuration || completeDuration ? Math.round(totalDurationMs / 60000) : null,
+    minutesComplete: completeDuration,
     artists: artists.size,
     topArtist: highlight(topArtist, artists),
     topTrack: highlight(topTrack, tracks),

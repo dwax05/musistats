@@ -51,6 +51,7 @@ export const DEMO_DASHBOARD: DashboardData = {
   last24Hours: {
     songs: 24,
     minutes: 81,
+    minutesComplete: true,
     artists: 12,
     topArtist: { name: "Solstice FM", imageUrl: artists[0].imageUrl },
     topTrack: { name: "Slow Motion", imageUrl: tracks[0].imageUrl },

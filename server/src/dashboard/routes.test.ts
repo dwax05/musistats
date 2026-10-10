@@ -30,4 +30,14 @@ describe("dashboard 24-hour summary", () => {
     expect(summary.minutesByHour).toBeUndefined();
     expect(summary.playsByHour[6]).toBe(1);
   });
+
+  it("keeps known listening time when a legacy play has no duration", () => {
+    const summary = summarizeLast24Hours([
+      { name: "Known", artists: ["Artist"], playedAt: new Date("2026-10-10T06:15:00.000Z"), durationMs: 180_000 },
+      { name: "Legacy", artists: ["Artist"], playedAt: new Date("2026-10-10T06:20:00.000Z") },
+    ]);
+
+    expect(summary.minutes).toBe(3);
+    expect(summary.minutesComplete).toBe(false);
+  });
 });
