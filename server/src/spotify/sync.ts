@@ -11,6 +11,7 @@ import {
   type TimeRange,
   type TrackSummary,
 } from "./client";
+import { ensureImportIndexes } from "../imports/jobs";
 
 type SpotifyUser = {
   _id: ObjectId;
@@ -27,6 +28,7 @@ export async function ensureSpotifyIndexes(db: Db) {
     db.collection("RecentPlays").createIndex({ userId: 1, playedAt: -1 }),
     db.collection("RecentPlays").createIndex({ userId: 1, trackId: 1, playedAt: 1 }, { unique: true }),
     db.collection("TopSnapshots").createIndex({ userId: 1, capturedDay: -1 }, { unique: true }),
+    ensureImportIndexes(db),
   ]);
 }
 

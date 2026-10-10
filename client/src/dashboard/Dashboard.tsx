@@ -1,17 +1,22 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { AnimatePresence, LayoutGroup, motion } from "motion/react";
 import { useAuth, type User } from "../auth/AuthProvider";
 import SegmentedControl from "../ui/SegmentedControl";
-import { RANGE_LABELS, isDashboardData, isSessionsData, summarizeLast24Hours, type Album, type Artist, type DashboardData, type ListeningSession, type TimeRange, type Track } from "./model";
+import SettingsPanel from "../settings/SettingsPanel";
+import { RANGE_LABELS, isDashboardData, isSessionsData, isStatsData, summarizeLast24Hours, type Album, type Artist, type ChartSeries, type DashboardData, type ListeningSession, type RankedMetric, type StatsData, type TimeRange, type Track } from "./model";
 
-type Page = "dashboard" | "songs" | "artists" | "albums" | "sessions";
+type Page = "dashboard" | "stats" | "songs" | "artists" | "albums" | "sessions" | "settings";
 
-const pages: { value: Page; label: string }[] = [
+const primaryPages: { value: Page; label: string }[] = [
   { value: "dashboard", label: "Dashboard" },
+  { value: "stats", label: "All stats" },
+  { value: "sessions", label: "Sessions" },
+];
+
+const topPages: { value: Page; label: string }[] = [
   { value: "songs", label: "Songs" },
   { value: "artists", label: "Artists" },
   { value: "albums", label: "Albums" },
-  { value: "sessions", label: "Sessions" },
 ];
 
 function Artwork({ src, alt, round = false }: { src: string | null; alt: string; round?: boolean }) {
@@ -45,6 +50,47 @@ function SessionList({ sessions }: { sessions: ListeningSession[] }) {
   return <LayoutGroup><ol className="space-y-4">{sessions.map((session, index) => <SessionItem key={session.id} session={session} index={index} />)}</ol></LayoutGroup>;
 }
 
+function GraphCard({ title, children, fullWidth = false }: { title: string; children: ReactNode; fullWidth?: boolean }) {
+  return <section className={`rounded-2xl border border-border-app/80 bg-surface/95 p-5 shadow-xl shadow-black/20 sm:p-6 ${fullWidth ? "lg:col-span-2" : ""}`}><h2 className="text-lg font-semibold text-fg">{title}</h2>{children}</section>;
+}
+
+function MetricBarChart({ title, metrics, format }: { title: string; metrics: RankedMetric[]; format: (value: number) => string }) {
+  const highest = Math.max(...metrics.map((metric) => metric.value), 0);
+  return <GraphCard title={title}>{highest === 0 ? <EmptyList>No data for this range.</EmptyList> : <ol className="mt-6 space-y-3">{metrics.map((metric) => <li key={metric.name} className="grid grid-cols-[minmax(0,8rem)_1fr_auto] items-center gap-3 text-xs"><span className="truncate font-semibold text-fg" title={metric.name}>{metric.name}</span><span className="h-2 overflow-hidden rounded-full bg-surface-raised"><span className="block h-full rounded-full bg-accent" style={{ width: `${metric.value / highest * 100}%` }} /></span><span className="text-muted">{format(metric.value)}</span></li>)}</ol>}</GraphCard>;
+}
+
+function TimelineLabels({ series }: { series: ChartSeries }) {
+  return <div className="mt-3 flex justify-between text-xs text-muted"><span>{series.labels[0]}</span><span>{series.labels[series.labels.length - 1]}</span></div>;
+}
+
+function ChartYAxis({ minimum, maximum, format }: { minimum: number; maximum: number; format: (value: number) => string }) {
+  return <div aria-hidden="true" className="flex h-40 flex-col justify-between pb-1 text-right text-[11px] text-muted"><span>{format(maximum)}</span><span>{format(minimum)}</span></div>;
+}
+
+function TimeBarChart({ title, series, format }: { title: string; series: ChartSeries; format: (value: number) => string }) {
+  const highest = Math.max(...series.values, 0);
+  return <GraphCard title={title} fullWidth>{highest === 0 ? <EmptyList>No data for this range.</EmptyList> : <div className="mt-6 grid grid-cols-[3rem_1fr] gap-3"><ChartYAxis minimum={0} maximum={highest} format={format} /><div><div role="img" aria-label={title} className="flex h-40 items-end gap-px border-b border-border-app">{series.values.map((value, index) => <span key={`${series.labels[index]}-${index}`} className="min-w-0 flex-1 bg-accent/70" style={{ height: `${Math.max(4, value / highest * 100)}%` }} />)}</div><TimelineLabels series={series} /></div></div>}</GraphCard>;
+}
+
+function LineChart({ title, series, format }: { title: string; series: ChartSeries; format: (value: number) => string }) {
+  const lowest = series.values.length ? Math.min(...series.values) : 0;
+  const highest = series.values.length ? Math.max(...series.values) : 0;
+  const span = highest - lowest || 1;
+  const points = series.values.map((value, index) => ({ x: index / Math.max(series.values.length - 1, 1) * 100, y: 100 - (value - lowest) / span * 100 }));
+  const path = points.reduce((line, point, index) => {
+    if (index === 0) return `M${point.x},${point.y}`;
+    const previous = points[index - 1];
+    const controlX = (previous.x + point.x) / 2;
+    return `${line} C${controlX},${previous.y} ${controlX},${point.y} ${point.x},${point.y}`;
+  }, "");
+  const areaPath = `${path} L100,100 L0,100 Z`;
+  return <GraphCard title={title}>{!series.values.length ? <EmptyList>No data for this range.</EmptyList> : <div className="mt-6 grid grid-cols-[3rem_1fr] gap-3"><ChartYAxis minimum={lowest} maximum={highest} format={format} /><div><svg role="img" aria-label={title} viewBox="0 0 100 100" preserveAspectRatio="none" className="h-40 w-full overflow-visible"><path d="M0 100H100" stroke="currentColor" className="text-border-app" vectorEffect="non-scaling-stroke" /><path d={areaPath} fill="currentColor" className="text-accent/15" /><path d={path} fill="none" stroke="currentColor" className="text-accent" strokeWidth="2" vectorEffect="non-scaling-stroke" strokeLinecap="round" /></svg><TimelineLabels series={series} /></div></div>}</GraphCard>;
+}
+
+function StatsPanel({ stats }: { stats: StatsData }) {
+  return <div className="grid gap-6 lg:grid-cols-2"><MetricBarChart title="Top artists by plays" metrics={stats.topArtistsByPlays} format={(value) => `${Math.round(value)} plays`} /><MetricBarChart title="Top artists by listening time" metrics={stats.topArtistsByMinutes} format={(value) => `${Math.round(value)}m`} /><TimeBarChart title="Listening distribution over time" series={stats.listeningDistribution} format={(value) => `${Math.round(value)}m`} /><LineChart title="Songs listened over time" series={stats.songsListened} format={(value) => String(Math.round(value))} /><LineChart title="Different artists listened over time" series={stats.artistsListened} format={(value) => String(Math.round(value))} /><LineChart title="Average album release date" series={stats.averageAlbumReleaseYear} format={(value) => String(Math.round(value))} /><LineChart title="Average features per song" series={stats.averageFeaturesPerSong} format={(value) => value.toFixed(1)} /></div>;
+}
+
 function StatCard({ label, value, fullWidth = false, imageUrl, imageAlt, round = false }: { label: string; value: string | number; fullWidth?: boolean; imageUrl?: string | null; imageAlt?: string; round?: boolean }) {
   return <div className={`min-h-44 rounded-2xl border border-border-app/80 bg-surface/95 shadow-xl shadow-black/20 ${fullWidth ? "lg:col-span-2" : ""}`} style={{ padding: "2rem" }}>
     <dt className="text-base font-semibold text-fg">{label}</dt>
@@ -75,7 +121,7 @@ function RankedAlbums({ albums }: { albums: Album[] }) {
   return <ol className="space-y-2">{albums.map((album, index) => <li key={album.id}><a href={album.externalUrl} target="_blank" rel="noreferrer" className="group flex items-center gap-3 rounded-xl p-2 transition hover:bg-surface-raised focus-visible:outline-2 focus-visible:outline-accent"><span className="w-5 text-center text-xs font-semibold text-muted">{index + 1}</span><Artwork src={album.imageUrl} alt={album.name} /><span className="min-w-0"><span className="block truncate text-sm font-semibold text-fg group-hover:text-accent">{album.name}</span><span className="block truncate text-xs text-muted">{album.artists.join(", ")}</span></span></a></li>)}</ol>;
 }
 
-export default function Dashboard({ initialData, initialSessions, demoUser }: { initialData?: DashboardData; initialSessions?: Record<TimeRange, ListeningSession[]>; demoUser?: User }) {
+export default function Dashboard({ initialData, initialSessions, initialStats, demoUser }: { initialData?: DashboardData; initialSessions?: Record<TimeRange, ListeningSession[]>; initialStats?: Record<TimeRange, StatsData>; demoUser?: User }) {
   const { user, authedPost, logout, disconnect } = useAuth();
   const [page, setPage] = useState<Page>("dashboard");
   const [range, setRange] = useState<TimeRange>("medium_term");
@@ -83,8 +129,13 @@ export default function Dashboard({ initialData, initialSessions, demoUser }: { 
   const [error, setError] = useState("");
   const [sessions, setSessions] = useState<Partial<Record<TimeRange, ListeningSession[]>>>(initialSessions ?? {});
   const [sessionsError, setSessionsError] = useState<{ range: TimeRange; message: string } | null>(null);
+  const [stats, setStats] = useState<Partial<Record<TimeRange, StatsData>>>(initialStats ?? {});
+  const [statsError, setStatsError] = useState<{ range: TimeRange; message: string } | null>(null);
+  const [profileOpen, setProfileOpen] = useState(false);
+  const profileMenuRef = useRef<HTMLDivElement>(null);
   const activeUser = demoUser ?? user;
   const selectedSessions = sessions[range];
+  const selectedStats = stats[range];
 
   useEffect(() => {
     if (initialData) return;
@@ -108,6 +159,31 @@ export default function Dashboard({ initialData, initialSessions, demoUser }: { 
     return () => { active = false; };
   }, [authedPost, initialSessions, page, range, selectedSessions]);
 
+  useEffect(() => {
+    if (initialStats !== undefined || page !== "stats" || selectedStats !== undefined) return;
+    let active = true;
+    void authedPost("/api/stats", { range }).then((response) => {
+      if (!active) return;
+      if (!isStatsData(response)) setStatsError({ range, message: response.error === "offline" ? "MusiStats is temporarily unavailable." : "Your stats could not be loaded." });
+      else setStats((current) => ({ ...current, [range]: response.stats }));
+    });
+    return () => { active = false; };
+  }, [authedPost, initialStats, page, range, selectedStats]);
+
+  useEffect(() => {
+    function closeProfileMenu(event: PointerEvent) {
+      const menu = profileMenuRef.current;
+      if (menu && event.target instanceof Node && !menu.contains(event.target)) setProfileOpen(false);
+    }
+    function closeProfileMenuOnEscape(event: KeyboardEvent) { if (event.key === "Escape") setProfileOpen(false); }
+    document.addEventListener("pointerdown", closeProfileMenu);
+    document.addEventListener("keydown", closeProfileMenuOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeProfileMenu);
+      document.removeEventListener("keydown", closeProfileMenuOnEscape);
+    };
+  }, []);
+
   async function deleteAccount() {
     if (!window.confirm("Disconnect Spotify and permanently delete all imported MusiStats data?")) return;
     if (demoUser) return window.location.assign("/");
@@ -117,8 +193,8 @@ export default function Dashboard({ initialData, initialSessions, demoUser }: { 
 
   const selected = data?.top[range];
   const last24Hours = data?.last24Hours ?? summarizeLast24Hours(data?.recent ?? []);
-  const contentTitle = page === "songs" ? "Top songs" : page === "artists" ? "Top artists" : page === "albums" ? "Top albums" : "Longest listening sessions";
-  const stats = [
+  const contentTitle = page === "settings" ? "Settings" : page === "stats" ? "All stats" : page === "songs" ? "Top songs" : page === "artists" ? "Top artists" : page === "albums" ? "Top albums" : "Longest listening sessions";
+  const summaryStats = [
     { label: "Songs listened in the last 24 hours", value: last24Hours.songs },
     { label: "Time listened in the last 24 hours", value: formatDuration(last24Hours.minutes) },
     { label: "Artists listened in the last 24 hours", value: last24Hours.artists },
@@ -126,22 +202,23 @@ export default function Dashboard({ initialData, initialSessions, demoUser }: { 
     { label: "Most listened song", value: last24Hours.topTrack?.name ?? "—", imageUrl: last24Hours.topTrack?.imageUrl, imageAlt: last24Hours.topTrack?.name },
   ];
 
-  return <main className="min-h-screen w-full lg:flex">
-    <aside className="border-b border-border-app px-5 pb-6 pt-6 sm:px-8 lg:sticky lg:top-0 lg:flex lg:h-screen lg:w-60 lg:shrink-0 lg:flex-col lg:border-b-0 lg:border-r lg:bg-surface lg:px-6 lg:py-8">
-      <div className="flex items-center justify-between lg:contents">
-        <a href="/" className="text-2xl font-bold tracking-[-0.04em] text-fg">MusiStats</a>
-        <details className="relative lg:order-3 lg:mt-auto"><summary className="flex cursor-pointer list-none items-center gap-3 rounded-xl border border-border-app bg-surface px-3 py-2 transition hover:border-muted/60 focus-visible:outline-2 focus-visible:outline-accent">{activeUser?.avatarUrl ? <img src={activeUser.avatarUrl} alt="" className="h-8 w-8 rounded-full object-cover" /> : <div className="grid h-8 w-8 place-items-center rounded-full bg-accent/15 font-semibold text-accent">{activeUser?.displayName.charAt(0).toUpperCase()}</div>}<span className="hidden max-w-44 truncate text-sm font-medium text-fg sm:block">{activeUser?.displayName}</span></summary>
-          <div className="absolute right-0 z-10 mt-2 w-56 overflow-hidden rounded-xl border border-border-app bg-surface p-2 shadow-2xl shadow-black/50 lg:bottom-full lg:right-auto lg:left-0 lg:mb-2 lg:mt-0"><button onClick={() => demoUser ? window.location.assign("/") : void logout()} className="w-full rounded-lg px-3 py-2 text-left text-sm text-fg transition hover:bg-surface-raised">Log out</button><p className="px-3 pb-1 pt-3 text-[11px] leading-4 text-muted">Logging out does not stop data collection.</p><button onClick={() => void deleteAccount()} className="w-full rounded-lg px-3 py-2 text-left text-sm text-error transition hover:bg-error/10">Disconnect and delete data</button></div>
-        </details>
+  return <main className="min-h-screen w-full p-3 sm:p-5 lg:flex lg:gap-5">
+    <motion.aside layout="position" transition={{ layout: { duration: 0.35, ease: "easeOut" } }} className="relative rounded-3xl border border-border-app bg-surface/95 px-5 py-6 shadow-xl shadow-black/20 sm:px-8 lg:sticky lg:top-5 lg:flex lg:h-[calc(100vh-2.5rem)] lg:w-64 lg:shrink-0 lg:flex-col lg:bg-surface lg:px-6 lg:py-8">
+      <div className="flex items-center justify-between lg:block">
+        <div><a href="/" className="text-2xl font-bold tracking-[-0.04em] text-fg">MusiStats</a><p className="mt-2 hidden text-xs text-muted lg:block">Your listening library</p></div>
+        <div ref={profileMenuRef} className="relative lg:absolute lg:bottom-6 lg:left-6 lg:right-6"><button type="button" aria-expanded={profileOpen} aria-controls="profile-menu" aria-haspopup="menu" onClick={() => setProfileOpen((open) => !open)} className="flex w-full items-center gap-3 rounded-xl px-0 py-0 text-left transition hover:text-accent focus-visible:outline-2 focus-visible:outline-accent">{activeUser?.avatarUrl ? <img src={activeUser.avatarUrl} alt="" className="h-8 w-8 rounded-full object-cover" /> : <div className="grid h-8 w-8 place-items-center rounded-full bg-accent/15 font-semibold text-accent">{activeUser?.displayName.charAt(0).toUpperCase()}</div>}<span className="hidden max-w-44 truncate text-sm font-medium text-fg sm:block">{activeUser?.displayName}</span></button>
+          <AnimatePresence initial={false}>{profileOpen && <motion.div id="profile-menu" initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.96 }} transition={{ duration: 0.16, ease: "easeOut" }} className="absolute right-0 z-10 mt-2 w-56 origin-top-right overflow-hidden rounded-xl border border-border-app bg-surface p-2 shadow-2xl shadow-black/50 lg:bottom-full lg:right-auto lg:left-0 lg:mb-3 lg:mt-0 lg:origin-bottom-left"><button onClick={() => demoUser ? window.location.assign("/") : void logout()} className="w-full rounded-lg px-3 py-2 text-left text-sm text-fg transition hover:bg-surface-raised">Log out</button><p className="px-3 pb-1 pt-3 text-[11px] leading-4 text-muted">Logging out does not stop data collection.</p><button onClick={() => void deleteAccount()} className="w-full rounded-lg px-3 py-2 text-left text-sm text-error transition hover:bg-error/10">Disconnect and delete data</button></motion.div>}</AnimatePresence>
+        </div>
       </div>
 
-      <nav aria-label="MusiStats pages" className="mt-6 flex gap-1 overflow-x-auto border-b border-border-app lg:mt-10 lg:flex-col lg:gap-1 lg:overflow-visible lg:border-0 lg:pr-2">{pages.map((item) => <button key={item.value} type="button" onClick={() => setPage(item.value)} aria-current={page === item.value ? "page" : undefined} className={`shrink-0 border-b-2 px-4 py-3 text-sm font-semibold transition lg:rounded-xl lg:border-l-2 lg:border-b-0 lg:px-3 lg:text-left ${page === item.value ? "border-accent text-fg lg:bg-accent/10" : "border-transparent text-muted hover:text-fg lg:hover:bg-surface-raised"}`}>{item.label}</button>)}</nav>
-    </aside>
+      <nav aria-label="MusiStats pages" className="mt-5 flex gap-1 overflow-x-auto border-t border-border-app pt-3 lg:mt-14 lg:flex-col lg:gap-1 lg:overflow-visible lg:border-0 lg:pt-0"><div className="flex shrink-0 gap-1 lg:flex-col">{primaryPages.map((item) => <button key={item.value} type="button" onClick={() => setPage(item.value)} aria-current={page === item.value ? "page" : undefined} className={`shrink-0 border-b-2 px-4 py-3 text-sm font-semibold transition lg:rounded-xl lg:border-l-2 lg:border-b-0 lg:px-3 lg:text-left ${page === item.value ? "border-accent text-fg lg:bg-accent/10" : "border-transparent text-muted hover:text-fg lg:hover:bg-surface-raised"}`}>{item.label}</button>)}</div><div className="flex shrink-0 gap-1 lg:mt-6 lg:flex-col lg:border-t lg:border-border-app lg:pt-5"><p className="hidden px-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted lg:block">Your top</p><div className="flex gap-1 lg:flex-col">{topPages.map((item) => <button key={item.value} type="button" onClick={() => setPage(item.value)} aria-current={page === item.value ? "page" : undefined} className={`shrink-0 border-b-2 px-4 py-3 text-sm font-semibold transition lg:rounded-xl lg:border-l-2 lg:border-b-0 lg:px-3 lg:text-left ${page === item.value ? "border-accent text-fg lg:bg-accent/10" : "border-transparent text-muted hover:text-fg lg:hover:bg-surface-raised"}`}>{item.label}</button>)}</div></div></nav>
+      <button type="button" onClick={() => setPage("settings")} aria-current={page === "settings" ? "page" : undefined} className={`mt-4 shrink-0 border-b-2 px-4 py-3 text-sm font-semibold transition lg:absolute lg:bottom-20 lg:left-6 lg:right-6 lg:mt-0 lg:rounded-xl lg:border-l-2 lg:border-b-0 lg:px-3 lg:text-left ${page === "settings" ? "border-accent text-fg lg:bg-accent/10" : "border-transparent text-muted hover:text-fg lg:hover:bg-surface-raised"}`}>Settings</button>
+    </motion.aside>
 
-    <div className="mx-auto w-full max-w-7xl px-5 pb-16 pt-8 sm:px-8 lg:px-10 lg:pt-10">
-      <section className="mb-8 flex flex-col justify-between gap-5 sm:flex-row sm:items-end"><div><p className="mb-2 text-xs font-semibold uppercase tracking-[0.2em] text-accent">Your listening</p><h1 className="text-3xl font-bold tracking-[-0.04em] text-fg sm:text-4xl">{page === "dashboard" ? `Welcome back, ${activeUser?.displayName}` : contentTitle}</h1><p className="mt-2 text-sm text-muted">{page === "dashboard" ? "Your last 24 hours" : page === "sessions" ? "Grouped plays with 45 minutes or less between tracks" : data?.updatedAt ? `Updated ${new Date(data.updatedAt).toLocaleString()}` : "Your Spotify snapshot"}</p></div>{page !== "dashboard" && <SegmentedControl ariaLabel="Stats time range" options={(Object.keys(RANGE_LABELS) as TimeRange[]).map((value) => ({ value, label: RANGE_LABELS[value] }))} value={range} onChange={setRange} />}</section>
+    <div className="mx-auto w-full max-w-7xl px-2 pb-16 pt-8 sm:px-3 lg:px-8 lg:py-5">
+      <section className="mb-8 flex flex-col justify-between gap-5 sm:flex-row sm:items-end"><div><p className="mb-2 text-xs font-semibold uppercase tracking-[0.2em] text-accent">Your listening</p><h1 className="text-3xl font-bold tracking-[-0.04em] text-fg sm:text-4xl">{page === "dashboard" ? `Welcome back, ${activeUser?.displayName}` : contentTitle}</h1><p className="mt-2 text-sm text-muted">{page === "dashboard" ? "Your last 24 hours" : page === "settings" ? "Manage your listening history" : page === "stats" ? "Your listening patterns, at a glance" : page === "sessions" ? "Grouped plays with 45 minutes or less between tracks" : data?.updatedAt ? `Updated ${new Date(data.updatedAt).toLocaleString()}` : "Your Spotify snapshot"}</p></div>{page !== "dashboard" && page !== "settings" && <SegmentedControl ariaLabel="Stats time range" options={(Object.keys(RANGE_LABELS) as TimeRange[]).map((value) => ({ value, label: RANGE_LABELS[value] }))} value={range} onChange={setRange} />}</section>
 
-      {error ? <div role="alert" className="rounded-2xl border border-error/30 bg-error/10 px-5 py-4 text-sm text-error">{error}</div> : !data ? <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3" aria-label="Loading your stats">{[0, 1, 2, 3, 4].map((item) => <div key={item} className="h-40 animate-pulse rounded-2xl border border-border-app bg-surface" />)}</div> : <AnimatePresence mode="wait"><motion.div key={`${page}-${range}`} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.16 }}>{page === "dashboard" ? <><dl className="grid gap-6 lg:grid-cols-2">{stats.map((stat, index) => <StatCard key={stat.label} {...stat} fullWidth={index === 0} />)}</dl><div className="mt-6 grid gap-6 lg:grid-cols-2"><ActivityChart title="Time listened over the last 24 hours" values={last24Hours.minutesByHour} emptyMessage="Hourly listening time is not available yet." /><ActivityChart title="Listening distribution over the last 24 hours" values={last24Hours.playsByHour} emptyMessage="No listening activity in the last 24 hours." /></div></> : page === "sessions" ? sessionsError?.range === range && selectedSessions === undefined ? <div role="alert" className="rounded-2xl border border-error/30 bg-error/10 px-5 py-4 text-sm text-error">{sessionsError.message}</div> : selectedSessions === undefined ? <div className="space-y-4" aria-label="Loading your listening sessions">{[0, 1].map((item) => <div key={item} className="h-24 animate-pulse rounded-2xl border border-border-app bg-surface" />)}</div> : <SessionList sessions={selectedSessions} /> : <section className="rounded-2xl border border-border-app/80 bg-surface/95 p-5 shadow-xl shadow-black/20 sm:p-6"><div className="mb-5 flex items-center justify-between"><h2 className="text-lg font-semibold text-fg">{contentTitle}</h2><span className="text-xs text-muted">{RANGE_LABELS[range]}</span></div>{page === "songs" && <RankedTracks tracks={selected?.tracks ?? []} />}{page === "artists" && <RankedArtists artists={selected?.artists ?? []} />}{page === "albums" && <RankedAlbums albums={selected?.albums ?? []} />}</section>}</motion.div></AnimatePresence>}
+      {page === "settings" ? <SettingsPanel authedPost={authedPost} /> : error ? <div role="alert" className="rounded-2xl border border-error/30 bg-error/10 px-5 py-4 text-sm text-error">{error}</div> : !data ? <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3" aria-label="Loading your stats">{[0, 1, 2, 3, 4].map((item) => <div key={item} className="h-40 animate-pulse rounded-2xl border border-border-app bg-surface" />)}</div> : <AnimatePresence mode="wait"><motion.div key={`${page}-${range}`} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.16 }}>{page === "dashboard" ? <><dl className="grid gap-6 lg:grid-cols-2">{summaryStats.map((stat, index) => <StatCard key={stat.label} {...stat} fullWidth={index === 0} />)}</dl><div className="mt-6 grid gap-6 lg:grid-cols-2"><ActivityChart title="Time listened over the last 24 hours" values={last24Hours.minutesByHour} emptyMessage="Hourly listening time is not available yet." /><ActivityChart title="Listening distribution over the last 24 hours" values={last24Hours.playsByHour} emptyMessage="No listening activity in the last 24 hours." /></div></> : page === "stats" ? statsError?.range === range && selectedStats === undefined ? <div role="alert" className="rounded-2xl border border-error/30 bg-error/10 px-5 py-4 text-sm text-error">{statsError.message}</div> : selectedStats === undefined ? <div className="grid gap-6 lg:grid-cols-2" aria-label="Loading your stats">{[0, 1, 2, 3, 4, 5, 6].map((item) => <div key={item} className="h-56 animate-pulse rounded-2xl border border-border-app bg-surface" />)}</div> : <StatsPanel stats={selectedStats} /> : page === "sessions" ? sessionsError?.range === range && selectedSessions === undefined ? <div role="alert" className="rounded-2xl border border-error/30 bg-error/10 px-5 py-4 text-sm text-error">{sessionsError.message}</div> : selectedSessions === undefined ? <div className="space-y-4" aria-label="Loading your listening sessions">{[0, 1].map((item) => <div key={item} className="h-24 animate-pulse rounded-2xl border border-border-app bg-surface" />)}</div> : <SessionList sessions={selectedSessions} /> : <section className="rounded-2xl border border-border-app/80 bg-surface/95 p-5 shadow-xl shadow-black/20 sm:p-6"><div className="mb-5 flex items-center justify-between"><h2 className="text-lg font-semibold text-fg">{contentTitle}</h2><span className="text-xs text-muted">{RANGE_LABELS[range]}</span></div>{page === "songs" && <RankedTracks tracks={selected?.tracks ?? []} />}{page === "artists" && <RankedArtists artists={selected?.artists ?? []} />}{page === "albums" && <RankedAlbums albums={selected?.albums ?? []} />}</section>}</motion.div></AnimatePresence>}
     </div>
   </main>;
 }

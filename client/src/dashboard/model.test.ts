@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isDashboardData, isSessionsData, summarizeLast24Hours } from "./model";
+import { isDashboardData, isSessionsData, isStatsData, summarizeLast24Hours } from "./model";
 
 describe("dashboard response validation", () => {
   it("accepts the dashboard shape and rejects incomplete data", () => {
@@ -45,5 +45,23 @@ describe("dashboard response validation", () => {
       }],
     })).toBe(true);
     expect(isSessionsData({ error: "", sessions: [{ id: "session-1" }] })).toBe(false);
+  });
+
+  it("accepts graph data returned by the stats endpoint", () => {
+    const series = { labels: ["Mon"], values: [1] };
+    const metrics = [{ name: "Artist A", value: 3 }];
+    expect(isStatsData({
+      error: "",
+      stats: {
+        topArtistsByPlays: metrics,
+        listeningDistribution: series,
+        topArtistsByMinutes: metrics,
+        songsListened: series,
+        artistsListened: series,
+        averageAlbumReleaseYear: series,
+        averageFeaturesPerSong: series,
+      },
+    })).toBe(true);
+    expect(isStatsData({ error: "", stats: { topArtistsByPlays: metrics } })).toBe(false);
   });
 });
