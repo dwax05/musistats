@@ -26,7 +26,7 @@ function searchUrl(query: string) {
   return `https://open.spotify.com/search/${encodeURIComponent(query)}`;
 }
 
-function historyTop(plays: DashboardPlay[]) {
+export function historyTop(plays: DashboardPlay[]) {
   const artists = new Map<string, { item: TopItem; plays: number }>();
   const tracks = new Map<string, { item: TopItem; plays: number }>();
   const albums = new Map<string, { item: TopItem; plays: number }>();
@@ -39,7 +39,8 @@ function historyTop(plays: DashboardPlay[]) {
     const name = typeof play.name === "string" ? play.name : "";
     const artistNames = Array.isArray(play.artists) ? play.artists.filter((artist): artist is string => typeof artist === "string" && Boolean(artist)) : [];
     const imageUrl = typeof play.imageUrl === "string" ? play.imageUrl : null;
-    if (name) add(tracks, play.trackId || `${name}\n${artistNames.join("\n")}`, { id: play.trackId || `track:${name}`, name, artists: artistNames, imageUrl, externalUrl: typeof play.externalUrl === "string" && play.externalUrl ? play.externalUrl : searchUrl(`${name} ${artistNames.join(" ")}`) });
+    const trackKey = play.trackId?.startsWith("import:") ? `${name}\n${artistNames.join("\n")}` : play.trackId || `${name}\n${artistNames.join("\n")}`;
+    if (name) add(tracks, trackKey, { id: play.trackId || `track:${name}`, name, artists: artistNames, imageUrl, externalUrl: typeof play.externalUrl === "string" && play.externalUrl ? play.externalUrl : searchUrl(`${name} ${artistNames.join(" ")}`) });
     for (const artist of artistNames) add(artists, artist, { id: `artist:${artist}`, name: artist, artists: [], imageUrl, externalUrl: searchUrl(artist) });
     if (typeof play.albumName === "string" && play.albumName) add(albums, `${play.albumName}\n${artistNames.join("\n")}`, { id: `album:${play.albumName}`, name: play.albumName, artists: artistNames, imageUrl, externalUrl: searchUrl(`${play.albumName} ${artistNames.join(" ")}`) });
   }
