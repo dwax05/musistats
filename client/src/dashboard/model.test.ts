@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isDashboardData, isSessionsData, isStatsData, summarizeLast24Hours } from "./model";
+import { isDashboardData, isSessionsData, isStatsData, isTasteReplayData, summarizeLast24Hours } from "./model";
 
 describe("dashboard response validation", () => {
   it("accepts the dashboard shape and rejects incomplete data", () => {
@@ -62,5 +62,25 @@ describe("dashboard response validation", () => {
       },
     })).toBe(true);
     expect(isStatsData({ error: "", stats: { topArtistsByPlays: metrics } })).toBe(false);
+  });
+
+  it("accepts imported taste replay frames and rejects invalid interval metadata", () => {
+    const response = {
+      error: "",
+      range: "long_term",
+      status: "ready",
+      source: "imported_history",
+      intervalDays: 7,
+      frames: [{
+        capturedAt: "2026-10-10T00:00:00.000Z",
+        genres: [{ name: "ambient", weight: 1 }],
+      }],
+    };
+    expect(isTasteReplayData(response)).toBe(true);
+    expect(isTasteReplayData({ ...response, status: "provider_not_configured" })).toBe(true);
+    expect(isTasteReplayData({ ...response, status: "loading_genres" })).toBe(true);
+    expect(isTasteReplayData({ ...response, status: "genre_lookup_failed" })).toBe(true);
+    expect(isTasteReplayData({ ...response, intervalDays: 0 })).toBe(false);
+    expect(isTasteReplayData({ ...response, source: "unknown" })).toBe(false);
   });
 });
