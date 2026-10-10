@@ -7,14 +7,14 @@ import {
   verifyAccessToken,
   verifyRefreshToken,
   type TokenPayload,
-} from "../createJWT";
+} from "./tokens";
 import {
   encryptSpotifyToken,
   exchangeSpotifyCode,
   getSpotifyProfile,
   spotifyAuthorizeUrl,
-} from "../spotify";
-import { syncSpotifyUser } from "../spotify-import";
+} from "../spotify/client";
+import { syncSpotifyUser } from "../spotify/sync";
 
 const REFRESH_COOKIE = "refreshToken";
 const OAUTH_STATE_COOKIE = "spotifyOauthState";

@@ -4,7 +4,7 @@ import {
   decryptSpotifyToken,
   encryptSpotifyToken,
   spotifyAuthorizeUrl,
-} from "./spotify";
+} from "./client";
 
 beforeEach(() => {
   process.env.SPOTIFY_CLIENT_ID = "client-id";

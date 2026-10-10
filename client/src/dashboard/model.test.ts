@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isDashboardData } from "./dashboard";
+import { isDashboardData } from "./model";
 
 describe("dashboard response validation", () => {
   it("accepts the dashboard shape and rejects incomplete data", () => {

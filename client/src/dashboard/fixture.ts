@@ -1,5 +1,5 @@
-import type { User } from "./auth/auth";
-import type { Artist, DashboardData, Track } from "./dashboard";
+import type { User } from "../auth/AuthProvider";
+import type { Artist, DashboardData, Track } from "./model";
 
 function artwork(letter: string, color: string) {
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" fill="${color}"/><circle cx="72" cy="28" r="32" fill="#fff" opacity=".12"/><text x="50" y="64" text-anchor="middle" font-family="system-ui" font-size="42" font-weight="700" fill="#fff">${letter}</text></svg>`;

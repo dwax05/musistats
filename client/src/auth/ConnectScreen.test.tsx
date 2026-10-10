@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import type { ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
-import { ConnectScreen } from "./App";
+import ConnectScreen from "./ConnectScreen";
 
 vi.mock("motion/react", () => ({
   AnimatePresence: ({ children }: { children: ReactNode }) => children,

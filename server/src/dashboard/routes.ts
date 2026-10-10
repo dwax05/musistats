@@ -1,6 +1,6 @@
 import { ObjectId, type Db } from "mongodb";
 import type { Express } from "express";
-import { authPayload, requireAuth } from "./auth";
+import { authPayload, requireAuth } from "../auth/routes";
 
 const EMPTY_TOP = {
   short_term: { artists: [], tracks: [] },

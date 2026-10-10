@@ -1,4 +1,4 @@
-import type { ApiResponse } from "./auth/auth";
+import type { ApiResponse } from "../auth/AuthProvider";
 
 export type TimeRange = "short_term" | "medium_term" | "long_term";
 

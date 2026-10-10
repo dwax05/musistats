@@ -10,7 +10,7 @@ import {
   type ArtistSummary,
   type TimeRange,
   type TrackSummary,
-} from "./spotify";
+} from "./client";
 
 type SpotifyUser = {
   _id: ObjectId;

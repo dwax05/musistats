@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { createAccessToken, verifyAccessToken } from "./createJWT";
+import { createAccessToken, verifyAccessToken } from "./tokens";
 
-describe("createJWT", () => {
+describe("auth tokens", () => {
   it("round-trips a payload", () => {
     const payload = { userId: "u1", displayName: "Sam", avatarUrl: null };
     const token = createAccessToken(payload);

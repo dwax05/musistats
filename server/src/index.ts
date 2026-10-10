@@ -3,7 +3,7 @@ import cookieParser from "cookie-parser";
 import { MongoClient } from "mongodb";
 import { loadEnvFile } from "node:process";
 import { registerRoutes } from "./api";
-import { ensureSpotifyIndexes, startSpotifySync } from "./spotify-import";
+import { ensureSpotifyIndexes, startSpotifySync } from "./spotify/sync";
 
 try {
   loadEnvFile();

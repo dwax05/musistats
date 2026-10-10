@@ -22,3 +22,16 @@ Open `http://127.0.0.1:5173`. Spotify refresh tokens are encrypted in MongoDB. R
 Use `http://127.0.0.1:5173/?demo=1` to review the populated dashboard during local development without a Spotify login.
 
 For production, set `NODE_ENV=production`, use the Docker MongoDB hostname, and register the production callback URL in both Spotify and `SPOTIFY_REDIRECT_URI`.
+
+## Structure
+
+```text
+client/src/
+  auth/       login and session UI
+  dashboard/  dashboard UI, response model, demo data, and tests
+  ui/         shared visual elements
+server/src/
+  auth/       OAuth routes and session tokens
+  dashboard/  dashboard routes
+  spotify/    Spotify client and background sync
+```
