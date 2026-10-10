@@ -33,6 +33,11 @@ function formatDuration(minutes: number | null) {
   return hours ? `${hours}h ${minutes % 60}m` : `${minutes}m`;
 }
 
+function formatListeningDuration(minutes: number | null, complete: boolean) {
+  const duration = formatDuration(minutes);
+  return minutes === null || complete ? duration : `≥ ${duration}`;
+}
+
 function formatSessionRange(startedAt: string, endedAt: string) {
   const time = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" });
   return `${new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(new Date(startedAt))} · ${time.format(new Date(startedAt))}–${time.format(new Date(endedAt))}`;
@@ -196,7 +201,7 @@ export default function Dashboard({ initialData, initialSessions, initialStats, 
   const contentTitle = page === "settings" ? "Settings" : page === "stats" ? "All stats" : page === "songs" ? "Top songs" : page === "artists" ? "Top artists" : page === "albums" ? "Top albums" : "Longest listening sessions";
   const summaryStats = [
     { label: "Songs listened in the last 24 hours", value: last24Hours.songs },
-    { label: "Time listened in the last 24 hours", value: formatDuration(last24Hours.minutes) },
+    { label: "Time listened in the last 24 hours", value: formatListeningDuration(last24Hours.minutes, last24Hours.minutesComplete) },
     { label: "Artists listened in the last 24 hours", value: last24Hours.artists },
     { label: "Most listened artist", value: last24Hours.topArtist?.name ?? "—", imageUrl: last24Hours.topArtist?.imageUrl, imageAlt: last24Hours.topArtist?.name, round: true },
     { label: "Most listened song", value: last24Hours.topTrack?.name ?? "—", imageUrl: last24Hours.topTrack?.imageUrl, imageAlt: last24Hours.topTrack?.name },

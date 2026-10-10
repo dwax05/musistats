@@ -68,6 +68,7 @@ export type StatsResponse = ApiResponse & { stats: StatsData };
 export type TodayStats = {
   songs: number;
   minutes: number | null;
+  minutesComplete: boolean;
   artists: number;
   topArtist: ListeningHighlight | null;
   topTrack: ListeningHighlight | null;
@@ -96,6 +97,7 @@ function isTodayStats(value: unknown): value is TodayStats {
   return isRecord(value)
     && typeof value.songs === "number"
     && (typeof value.minutes === "number" || value.minutes === null)
+    && typeof value.minutesComplete === "boolean"
     && typeof value.artists === "number"
     && (isListeningHighlight(value.topArtist) || value.topArtist === null)
     && (isListeningHighlight(value.topTrack) || value.topTrack === null)
@@ -183,6 +185,7 @@ export function summarizeLast24Hours(recent: RecentTrack[], now = Date.now()): T
   return {
     songs: plays.length,
     minutes: null,
+    minutesComplete: false,
     artists: artists.size,
     topArtist: highlight(mostPlayed(artists), artistImages),
     topTrack: highlight(mostPlayed(tracks), trackImages),
