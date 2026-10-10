@@ -136,15 +136,13 @@ export function registerAuthRoutes(app: Express, db: Db) {
       };
       setSessionCookie(res, payload);
 
-      try {
-        await syncSpotifyUser(db, {
-          _id: user._id,
-          encryptedRefreshToken: user.encryptedRefreshToken,
-          lastPlayedAt: user.lastPlayedAt,
-        }, tokens.accessToken, true);
-      } catch (error) {
+      void syncSpotifyUser(db, {
+        _id: user._id,
+        encryptedRefreshToken: user.encryptedRefreshToken,
+        lastPlayedAt: user.lastPlayedAt,
+      }, tokens.accessToken, true).catch((error) => {
         console.error(`Initial Spotify sync failed for ${user._id}:`, error);
-      }
+      });
 
       return res.redirect("/");
     } catch (error) {
