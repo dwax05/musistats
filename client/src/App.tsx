@@ -7,22 +7,22 @@ import {
 } from "./auth/AuthProvider";
 import ConnectScreen from "./auth/ConnectScreen";
 import Dashboard from "./dashboard/Dashboard";
-import type { DashboardData } from "./dashboard/model";
+import type { DashboardData, ListeningSession } from "./dashboard/model";
 import DotField from "./ui/DotField";
 
 function AuthGate() {
   const { user } = useAuth();
   const demo = import.meta.env.DEV && new URLSearchParams(window.location.search).has("demo");
-  const [demoContent, setDemoContent] = useState<{ data: DashboardData; user: User } | null>(null);
+  const [demoContent, setDemoContent] = useState<{ data: DashboardData; sessions: ListeningSession[]; user: User } | null>(null);
 
   useEffect(() => {
     if (!demo) return;
-    void import("./dashboard/fixture").then(({ DEMO_DASHBOARD, DEMO_USER }) => {
-      setDemoContent({ data: DEMO_DASHBOARD, user: DEMO_USER });
+    void import("./dashboard/fixture").then(({ DEMO_DASHBOARD, DEMO_SESSIONS, DEMO_USER }) => {
+      setDemoContent({ data: DEMO_DASHBOARD, sessions: DEMO_SESSIONS, user: DEMO_USER });
     });
   }, [demo]);
 
-  if (demo) return demoContent ? <Dashboard initialData={demoContent.data} demoUser={demoContent.user} /> : null;
+  if (demo) return demoContent ? <Dashboard initialData={demoContent.data} initialSessions={demoContent.sessions} demoUser={demoContent.user} /> : null;
   return user ? <Dashboard /> : <ConnectScreen />;
 }
 
