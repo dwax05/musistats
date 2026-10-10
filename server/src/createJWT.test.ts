@@ -3,8 +3,9 @@ import { createAccessToken, verifyAccessToken } from "./createJWT";
 
 describe("createJWT", () => {
   it("round-trips a payload", () => {
-    const token = createAccessToken({ userId: "u1", login: "sam" });
-    expect(verifyAccessToken(token)).toEqual({ userId: "u1", login: "sam" });
+    const payload = { userId: "u1", displayName: "Sam", avatarUrl: null };
+    const token = createAccessToken(payload);
+    expect(verifyAccessToken(token)).toEqual(payload);
   });
 
   it("rejects garbage", () => {

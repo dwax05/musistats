@@ -9,20 +9,20 @@ import {
   type ReactNode,
 } from "react";
 
-// The chokepoint for all authenticated requests. Components never call
-// fetch directly — they use authedPost, which handles the access token,
-// the silent-refresh-on-401 retry, and offline (deploy-window) detection.
+export type User = {
+  id: string;
+  displayName: string;
+  avatarUrl: string | null;
+};
 
-export type User = { id: string; login: string };
 export type ApiResponse = { error: string } & Record<string, unknown>;
 
 type AuthContext = {
   user: User | null;
   offline: boolean;
   authedPost: (url: string, body?: unknown) => Promise<ApiResponse>;
-  login: (login: string, password: string, rememberMe: boolean) => Promise<string>;
-  register: (login: string, password: string, rememberMe: boolean) => Promise<string>;
   logout: () => Promise<void>;
+  disconnect: () => Promise<string>;
 };
 
 const Ctx = createContext<AuthContext | null>(null);
@@ -38,7 +38,6 @@ async function post(url: string, body: unknown, accessToken?: string): Promise<R
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "x-remember-me": localStorage.getItem("rememberMe") ?? "0",
       ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
     },
     body: JSON.stringify(body ?? {}),
@@ -46,27 +45,19 @@ async function post(url: string, body: unknown, accessToken?: string): Promise<R
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  // Access token lives only in a ref — never in state, never on disk.
   const accessToken = useRef<string | null>(null);
-  const [user, setUser] = useState<User | null>(() => {
-    const raw = localStorage.getItem("user");
-    return raw ? (JSON.parse(raw) as User) : null;
-  });
+  const [user, setUser] = useState<User | null>(null);
   const [offline, setOffline] = useState(false);
-  // Render nothing until the mount-time silent refresh resolves, so
-  // returning users never see a flash of the login form.
-  const [ready, setReady] = useState(() => localStorage.getItem("user") === null);
+  const [ready, setReady] = useState(false);
 
   const applySession = useCallback((data: ApiResponse | null) => {
-    if (data && data.error === "" && typeof data.accessToken === "string") {
+    if (data?.error === "" && typeof data.accessToken === "string" && data.user) {
       accessToken.current = data.accessToken;
       setUser(data.user as User);
-      localStorage.setItem("user", JSON.stringify(data.user));
       return true;
     }
     accessToken.current = null;
     setUser(null);
-    localStorage.removeItem("user");
     return false;
   }, []);
 
@@ -80,25 +71,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [applySession]);
 
   useEffect(() => {
-    if (ready) return;
+    // oxlint-disable-next-line react/set-state-in-effect -- Session state comes from the server after mount.
     void refresh().finally(() => setReady(true));
-  }, [ready, refresh]);
+  }, [refresh]);
 
   const authedPost = useCallback(
     async (url: string, body?: unknown): Promise<ApiResponse> => {
       try {
         let res = await post(url, body, accessToken.current ?? undefined);
         if (res.status === 401) {
-          // Expired access token: silently refresh and retry exactly once.
           if (!(await refresh())) return { error: "unauthorized" };
           res = await post(url, body, accessToken.current ?? undefined);
         }
         setOffline(false);
+        if (!res.ok) return { error: "request_failed" };
         return (await res.json()) as ApiResponse;
       } catch (err) {
         if (err instanceof TypeError) {
-          // Network-level failure: the server is unreachable (e.g. a deploy
-          // is swapping containers), not a logical error from a live server.
           setOffline(true);
           return { error: "offline" };
         }
@@ -108,44 +97,42 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [refresh],
   );
 
-  const startSession = useCallback(
-    async (path: string, login: string, password: string, rememberMe: boolean) => {
-      localStorage.setItem("rememberMe", rememberMe ? "1" : "0");
-      try {
-        const res = await post(path, { login, password });
-        const data = (await res.json()) as ApiResponse;
-        if (data.error !== "") return data.error;
-        applySession(data);
-        return "";
-      } catch {
-        return "Could not reach the server";
+  const logout = useCallback(async () => {
+    try {
+      await post("/api/auth/logout", {}, accessToken.current ?? undefined);
+    } catch {
+      // A local logout still succeeds when the server is unavailable.
+    } finally {
+      applySession(null);
+    }
+  }, [applySession]);
+
+  const disconnect = useCallback(async () => {
+    try {
+      let res = await post("/api/auth/disconnect", {}, accessToken.current ?? undefined);
+      if (res.status === 401 && await refresh()) {
+        res = await post("/api/auth/disconnect", {}, accessToken.current ?? undefined);
       }
-    },
-    [applySession],
-  );
+      const data = res.ok ? await res.json() as ApiResponse : null;
+      if (!data || data.error) return "Your data could not be deleted. Please try again.";
+      applySession(null);
+      return "";
+    } catch {
+      return "Your data could not be deleted. Please try again.";
+    }
+  }, [applySession, refresh]);
 
   const value: AuthContext = {
     user,
     offline,
     authedPost,
-    login: (l, p, r) => startSession("/api/auth/login", l, p, r),
-    register: (l, p, r) => startSession("/api/auth/register", l, p, r),
-    logout: async () => {
-      try {
-        await post("/api/auth/logout", {});
-      } catch {
-        /* logging out while offline is fine */
-      }
-      applySession(null);
-      localStorage.removeItem("rememberMe");
-    },
+    logout,
+    disconnect,
   };
 
   return <Ctx.Provider value={value}>{ready ? children : null}</Ctx.Provider>;
 }
 
-/** Full-screen overlay for the ~5s deploy window: polls /api/health and
- *  reloads onto the freshly deployed assets once the server is back. */
 export function UpdateBanner() {
   const { offline } = useAuth();
 
@@ -156,7 +143,7 @@ export function UpdateBanner() {
         const res = await fetch("/api/health");
         if (res.ok) window.location.reload();
       } catch {
-        /* still down, keep polling */
+        // Keep polling while a deploy replaces the server.
       }
     }, 2000);
     return () => clearInterval(id);
@@ -164,20 +151,10 @@ export function UpdateBanner() {
 
   if (!offline) return null;
   return (
-    <div
-      style={{
-        position: "fixed",
-        inset: 0,
-        zIndex: 100,
-        display: "grid",
-        placeItems: "center",
-        backdropFilter: "blur(6px)",
-        background: "rgba(0,0,0,0.4)",
-        color: "white",
-        fontSize: "1.25rem",
-      }}
-    >
-      Updating&hellip;
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 backdrop-blur-sm">
+      <div className="rounded-2xl border border-border-app bg-surface px-6 py-5 text-sm font-medium shadow-2xl">
+        Updating&hellip;
+      </div>
     </div>
   );
 }

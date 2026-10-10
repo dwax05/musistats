@@ -1,16 +1,12 @@
-/* Theme tokens — every color/surface in the app should reference one of
- * these custom properties so themes can be swapped by overriding :root. */
+/* The MVP is dark-only. Keeping every surface tokenized makes future themes a CSS-only change. */
 :root {
-  --bg: #0f1115;
-  --surface: #1a1d24;
-  --surface-raised: #232733;
-  --fg: #e8eaf0;
-  --fg-muted: #9aa1b2;
-  --accent: #6c8cff;
-  --accent-fg: #ffffff;
-  --success: #4ade80;
-  --warning: #facc15;
-  --danger: #f87171;
-  --border: #2e3342;
-  --radius: 8px;
+  --bg: #080b09;
+  --surface: #111713;
+  --surface-raised: #19211c;
+  --fg: #f3f7f4;
+  --muted: #8d9d93;
+  --accent: #1db954;
+  --accent-fg: #041108;
+  --error: #ff6b6b;
+  --border: #27322b;
 }

@@ -1,6 +1,6 @@
-import type { Express, Request, Response, NextFunction } from "express";
-import type { Db } from "mongodb";
-import { randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
+import { randomBytes, timingSafeEqual } from "node:crypto";
+import { ObjectId, type Db } from "mongodb";
+import type { Express, NextFunction, Request, Response } from "express";
 import {
   createAccessToken,
   createRefreshToken,
@@ -8,44 +8,68 @@ import {
   verifyRefreshToken,
   type TokenPayload,
 } from "../createJWT";
-
-// Every endpoint is a POST returning 200 with { error: "" } on success.
-// The one exception to the 200 rule: expired/missing access tokens get a
-// real 401 so the client's silent-refresh-and-retry in authedPost can fire.
+import {
+  encryptSpotifyToken,
+  exchangeSpotifyCode,
+  getSpotifyProfile,
+  spotifyAuthorizeUrl,
+} from "../spotify";
+import { syncSpotifyUser } from "../spotify-import";
 
 const REFRESH_COOKIE = "refreshToken";
-const REFRESH_MAX_AGE = 30 * 24 * 60 * 60 * 1000;
-const cookieOpts = {
-  httpOnly: true,
-  sameSite: "strict" as const,
-  secure: process.env.NODE_ENV === "production",
-  path: "/api/auth",
-};
+const OAUTH_STATE_COOKIE = "spotifyOauthState";
+const THIRTY_DAYS = 30 * 24 * 60 * 60 * 1000;
 
-function hashPassword(password: string): string {
-  const salt = randomBytes(16).toString("hex");
-  return `${salt}:${scryptSync(password, salt, 64).toString("hex")}`;
+function secureCookies() {
+  return process.env.NODE_ENV === "production";
 }
 
-function checkPassword(password: string, stored: string): boolean {
-  const [salt, hash] = stored.split(":");
-  if (!salt || !hash) return false;
-  return timingSafeEqual(Buffer.from(hash, "hex"), scryptSync(password, salt, 64));
+function sessionCookieOptions() {
+  return {
+    httpOnly: true,
+    sameSite: "strict" as const,
+    secure: secureCookies(),
+    path: "/api/auth",
+  };
 }
 
-function issueTokens(req: Request, res: Response, payload: TokenPayload) {
-  // Without remember-me the refresh cookie is a session cookie (no maxAge).
-  // The client re-sends x-remember-me on every refresh so rotation preserves it.
-  const rememberMe = req.headers["x-remember-me"] === "1";
+function stateCookieOptions() {
+  return {
+    httpOnly: true,
+    sameSite: "lax" as const,
+    secure: secureCookies(),
+    path: "/api/auth/spotify/callback",
+  };
+}
+
+function userFromPayload(payload: TokenPayload) {
+  return {
+    id: payload.userId,
+    displayName: payload.displayName,
+    avatarUrl: payload.avatarUrl,
+  };
+}
+
+function setSessionCookie(res: Response, payload: TokenPayload) {
   res.cookie(REFRESH_COOKIE, createRefreshToken(payload), {
-    ...cookieOpts,
-    ...(rememberMe ? { maxAge: REFRESH_MAX_AGE } : {}),
+    ...sessionCookieOptions(),
+    maxAge: THIRTY_DAYS,
   });
+}
+
+function sessionResponse(res: Response, payload: TokenPayload) {
+  setSessionCookie(res, payload);
   res.json({
     error: "",
     accessToken: createAccessToken(payload),
-    user: { id: payload.userId, login: payload.login },
+    user: userFromPayload(payload),
   });
+}
+
+function statesMatch(received: string, stored: string): boolean {
+  const left = Buffer.from(received);
+  const right = Buffer.from(stored);
+  return left.length === right.length && timingSafeEqual(left, right);
 }
 
 export function requireAuth(req: Request, res: Response, next: NextFunction) {
@@ -56,45 +80,114 @@ export function requireAuth(req: Request, res: Response, next: NextFunction) {
   next();
 }
 
+export function authPayload(req: Request): TokenPayload {
+  return (req as Request & { auth: TokenPayload }).auth;
+}
+
 export function registerAuthRoutes(app: Express, db: Db) {
   const users = db.collection("Users");
-  void users.createIndex({ login: 1 }, { unique: true });
 
-  app.post("/api/auth/register", async (req, res) => {
-    const { login, password } = req.body ?? {};
-    if (typeof login !== "string" || !/^[a-zA-Z0-9_]{3,20}$/.test(login))
-      return res.json({ error: "Username must be 3-20 letters, numbers, or _" });
-    if (typeof password !== "string" || password.length < 8)
-      return res.json({ error: "Password must be at least 8 characters" });
-
-    if (await users.findOne({ login })) return res.json({ error: "Username taken" });
-    const { insertedId } = await users.insertOne({
-      login,
-      password: hashPassword(password),
-      createdAt: new Date(),
-    });
-    issueTokens(req, res, { userId: insertedId.toString(), login });
+  app.get("/api/auth/spotify", (_req, res) => {
+    try {
+      const state = randomBytes(24).toString("base64url");
+      res.cookie(OAUTH_STATE_COOKIE, state, { ...stateCookieOptions(), maxAge: 10 * 60 * 1000 });
+      res.redirect(spotifyAuthorizeUrl(state));
+    } catch (error) {
+      console.error("Spotify OAuth is not configured:", error);
+      res.redirect("/?auth_error=configuration");
+    }
   });
 
-  app.post("/api/auth/login", async (req, res) => {
-    const { login, password } = req.body ?? {};
-    if (typeof login !== "string" || typeof password !== "string")
-      return res.json({ error: "Missing credentials" });
+  app.get("/api/auth/spotify/callback", async (req, res) => {
+    const code = typeof req.query.code === "string" ? req.query.code : "";
+    const state = typeof req.query.state === "string" ? req.query.state : "";
+    const storedState = typeof req.cookies?.[OAUTH_STATE_COOKIE] === "string" ? req.cookies[OAUTH_STATE_COOKIE] : "";
+    res.clearCookie(OAUTH_STATE_COOKIE, stateCookieOptions());
 
-    const user = await users.findOne({ login });
-    if (!user || !checkPassword(password, user.password))
-      return res.json({ error: "Invalid username or password" });
-    issueTokens(req, res, { userId: user._id.toString(), login: user.login });
+    if (!code || !state || !storedState || !statesMatch(state, storedState)) {
+      return res.redirect("/?auth_error=state_mismatch");
+    }
+
+    try {
+      const tokens = await exchangeSpotifyCode(code);
+      if (!tokens.refreshToken) throw new Error("Spotify did not return a refresh token");
+      const profile = await getSpotifyProfile(tokens.accessToken);
+      const now = new Date();
+      const user = await users.findOneAndUpdate(
+        { spotifyId: profile.id },
+        {
+          $set: {
+            displayName: profile.displayName,
+            avatarUrl: profile.avatarUrl,
+            encryptedRefreshToken: encryptSpotifyToken(tokens.refreshToken),
+            connected: true,
+            updatedAt: now,
+          },
+          $setOnInsert: { spotifyId: profile.id, createdAt: now },
+        },
+        { upsert: true, returnDocument: "after" },
+      );
+      if (!user) throw new Error("Could not create Spotify account");
+
+      const payload: TokenPayload = {
+        userId: user._id.toString(),
+        displayName: profile.displayName,
+        avatarUrl: profile.avatarUrl,
+      };
+      setSessionCookie(res, payload);
+
+      try {
+        await syncSpotifyUser(db, {
+          _id: user._id,
+          encryptedRefreshToken: user.encryptedRefreshToken,
+          lastPlayedAt: user.lastPlayedAt,
+        }, tokens.accessToken, true);
+      } catch (error) {
+        console.error(`Initial Spotify sync failed for ${user._id}:`, error);
+      }
+
+      return res.redirect("/");
+    } catch (error) {
+      console.error("Spotify OAuth callback failed:", error);
+      return res.redirect("/?auth_error=spotify");
+    }
   });
 
-  app.post("/api/auth/refresh", (req, res) => {
+  app.post("/api/auth/refresh", async (req, res) => {
     const payload = verifyRefreshToken(req.cookies?.[REFRESH_COOKIE] ?? "");
     if (!payload) return res.status(401).json({ error: "unauthorized" });
-    issueTokens(req, res, payload);
+    if (!ObjectId.isValid(payload.userId)) return res.status(401).json({ error: "unauthorized" });
+    const user = await users.findOne({ _id: new ObjectId(payload.userId) });
+    if (!user) {
+      res.clearCookie(REFRESH_COOKIE, sessionCookieOptions());
+      return res.status(401).json({ error: "unauthorized" });
+    }
+    sessionResponse(res, {
+      userId: payload.userId,
+      displayName: user.displayName,
+      avatarUrl: user.avatarUrl ?? null,
+    });
   });
 
   app.post("/api/auth/logout", (_req, res) => {
-    res.clearCookie(REFRESH_COOKIE, cookieOpts);
+    res.clearCookie(REFRESH_COOKIE, sessionCookieOptions());
+    res.json({ error: "" });
+  });
+
+  app.post("/api/auth/disconnect", requireAuth, async (req, res) => {
+    const { userId } = authPayload(req);
+    if (!ObjectId.isValid(userId)) return res.status(401).json({ error: "unauthorized" });
+
+    await users.updateOne(
+      { _id: new ObjectId(userId) },
+      { $set: { connected: false }, $unset: { encryptedRefreshToken: "" } },
+    );
+    await Promise.all([
+      db.collection("RecentPlays").deleteMany({ userId }),
+      db.collection("TopSnapshots").deleteMany({ userId }),
+    ]);
+    await users.deleteOne({ _id: new ObjectId(userId) });
+    res.clearCookie(REFRESH_COOKIE, sessionCookieOptions());
     res.json({ error: "" });
   });
 }

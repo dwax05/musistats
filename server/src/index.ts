@@ -1,7 +1,15 @@
 import express from "express";
 import cookieParser from "cookie-parser";
 import { MongoClient } from "mongodb";
+import { loadEnvFile } from "node:process";
 import { registerRoutes } from "./api";
+import { ensureSpotifyIndexes, startSpotifySync } from "./spotify-import";
+
+try {
+  loadEnvFile();
+} catch (error) {
+  if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+}
 
 const app = express();
 const PORT = 3500;
@@ -23,7 +31,10 @@ const MONGO_URI =
 async function main() {
   const client = new MongoClient(MONGO_URI);
   await client.connect();
-  registerRoutes(app, client.db());
+  const db = client.db();
+  await ensureSpotifyIndexes(db);
+  registerRoutes(app, db);
+  startSpotifySync(db);
 }
 
 void main();
