@@ -54,11 +54,7 @@ The existing client treats non-2xx responses as generic request failures. Retain
 ```ts
 durationMs: number
 artistIds: string[]
-albumArtistIds: string[]
-albumReleaseDate: string | null // Spotify release_date, preserved as supplied
-albumReleaseDatePrecision: "year" | "month" | "day" | null
 ```
 
-- Parse these from Spotify track/album data during sync; do not make per-track Spotify calls while serving an aggregate endpoint.
-- Preserve `null` for missing optional metadata. Existing historical rows cannot be fully backfilled from the recently-played endpoint, so callers must tolerate missing metadata.
+- Parse these from Spotify track data during sync; do not make per-track Spotify calls while serving an aggregate endpoint.
 - Maintain or verify an index on `{ userId: 1, playedAt: 1 }` for range reads. Confirm the query plan before relying on an existing descending variant.

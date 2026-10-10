@@ -8,9 +8,6 @@ type StoredPlay = {
   durationMs?: number;
   artists?: string[];
   artistIds?: string[];
-  albumArtistIds?: string[];
-  albumReleaseDate?: string | null;
-  albumReleaseDatePrecision?: "year" | "month" | "day" | null;
 };
 
 type Bucket = { start: Date; end: Date; label: string };
@@ -19,9 +16,6 @@ type BucketTally = {
   durationMs: number;
   songs: number;
   artists: Set<string>;
-  releaseYearTotal: number;
-  releaseYearCount: number;
-  featuresTotal: number;
 };
 
 function normalizedName(name: string): string {
@@ -42,27 +36,6 @@ function creditedArtists(play: StoredPlay): [string, string][] {
 
 function knownDuration(play: StoredPlay): number | null {
   return typeof play.durationMs === "number" && Number.isFinite(play.durationMs) && play.durationMs >= 0 ? play.durationMs : null;
-}
-
-function releaseYear(play: StoredPlay): number | null {
-  const value = play.albumReleaseDate;
-  if (typeof value !== "string" || !play.albumReleaseDatePrecision) return null;
-  const match = /^(\d{4})(?:-(\d{2})(?:-(\d{2}))?)?$/.exec(value);
-  if (!match) return null;
-  const year = Number(match[1]);
-  const month = play.albumReleaseDatePrecision === "year" ? 7 : Number(match[2]);
-  const day = play.albumReleaseDatePrecision === "year" ? 1 : play.albumReleaseDatePrecision === "month" ? 15 : Number(match[3]);
-  const date = new Date(Date.UTC(year, month - 1, day));
-  if (Number.isNaN(date.getTime()) || date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) return null;
-  const yearStart = Date.UTC(year, 0, 1);
-  const nextYear = Date.UTC(year + 1, 0, 1);
-  return year + (date.getTime() - yearStart) / (nextYear - yearStart);
-}
-
-function featureCount(play: StoredPlay): number {
-  if (!Array.isArray(play.artistIds) || !Array.isArray(play.albumArtistIds)) return 0;
-  const albumArtists = new Set(play.albumArtistIds.filter((id): id is string => typeof id === "string"));
-  return new Set(play.artistIds.filter((id): id is string => typeof id === "string" && !albumArtists.has(id))).size;
 }
 
 function labelFor(start: Date, end: Date): string {
@@ -102,7 +75,7 @@ class StatsAccumulator {
 
   constructor(range: TimeRange, now: Date, firstPlay: Date | null) {
     this.buckets = buildBuckets(range, now, firstPlay);
-    this.tallies = this.buckets.map(() => ({ durationMs: 0, songs: 0, artists: new Set(), releaseYearTotal: 0, releaseYearCount: 0, featuresTotal: 0 }));
+    this.tallies = this.buckets.map(() => ({ durationMs: 0, songs: 0, artists: new Set() }));
   }
 
   add(play: StoredPlay) {
@@ -113,12 +86,6 @@ class StatsAccumulator {
     const durationMs = knownDuration(play);
     tally.durationMs += durationMs ?? 0;
     tally.songs += 1;
-    tally.featuresTotal += featureCount(play);
-    const year = releaseYear(play);
-    if (year !== null) {
-      tally.releaseYearTotal += year;
-      tally.releaseYearCount += 1;
-    }
     for (const [key, name] of creditedArtists(play)) {
       tally.artists.add(key);
       const artist = this.artists.get(key) ?? { name, plays: 0, durationMs: 0, hasKnownDuration: false };
@@ -131,13 +98,6 @@ class StatsAccumulator {
 
   result() {
     const labels = this.buckets.map((bucket) => bucket.label);
-    const releaseYears = this.tallies.map((tally) => tally.releaseYearCount ? tally.releaseYearTotal / tally.releaseYearCount : null);
-    const firstKnownRelease = releaseYears.find((value): value is number => value !== null) ?? 0;
-    let previousRelease = firstKnownRelease;
-    const averageAlbumReleaseYear = releaseYears.map((value) => {
-      if (value !== null) previousRelease = value;
-      return previousRelease;
-    });
     const rank = (value: "plays" | "durationMs") => [...this.artists.values()]
       .filter((artist) => value !== "durationMs" || artist.hasKnownDuration)
       .sort((left, right) => right[value] - left[value] || (value === "plays" ? right.durationMs - left.durationMs : 0) || left.name.localeCompare(right.name))
@@ -151,8 +111,6 @@ class StatsAccumulator {
       topArtistsByMinutes: rank("durationMs"),
       songsListened: series(this.tallies.map((tally) => tally.songs)),
       artistsListened: series(this.tallies.map((tally) => tally.artists.size)),
-      averageAlbumReleaseYear: series(averageAlbumReleaseYear),
-      averageFeaturesPerSong: series(this.tallies.map((tally) => tally.songs ? tally.featuresTotal / tally.songs : 0)),
     };
   }
 }

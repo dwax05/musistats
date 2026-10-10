@@ -44,9 +44,6 @@ describe("Spotify OAuth", () => {
             duration_ms: 210000,
             artists: [{ id: "artist-1", name: "Lead" }, { id: "artist-2", name: "Guest" }],
             album: {
-              artists: [{ id: "artist-1", name: "Lead" }],
-              release_date: "2020-04",
-              release_date_precision: "month",
               images: [],
             },
             external_urls: { spotify: "https://open.spotify.com/track/track-1" },
@@ -58,9 +55,6 @@ describe("Spotify OAuth", () => {
     await expect(getRecentTracks("access-token")).resolves.toEqual([expect.objectContaining({
       durationMs: 210000,
       artistIds: ["artist-1", "artist-2"],
-      albumArtistIds: ["artist-1"],
-      albumReleaseDate: "2020-04",
-      albumReleaseDatePrecision: "month",
     })]);
   });
 });
