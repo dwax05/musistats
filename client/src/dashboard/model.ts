@@ -15,6 +15,7 @@ export type Track = {
   artists: string[];
   imageUrl: string | null;
   externalUrl: string;
+  plays?: number;
 };
 
 export type Album = {
@@ -64,6 +65,8 @@ export type StatsData = {
 };
 
 export type StatsResponse = ApiResponse & { stats: StatsData };
+export type TopData = DashboardData["top"][TimeRange];
+export type TopResponse = ApiResponse & { top: TopData };
 
 export type TodayStats = {
   songs: number;
@@ -148,6 +151,21 @@ function isRankedMetric(value: unknown): value is RankedMetric {
   return isRecord(value) && typeof value.name === "string" && typeof value.value === "number" && Number.isFinite(value.value) && value.value >= 0;
 }
 
+function isTopData(value: unknown): value is TopData {
+  if (!isRecord(value)) return false;
+  const item = (entry: unknown) => isRecord(entry)
+    && typeof entry.id === "string"
+    && typeof entry.name === "string"
+    && Array.isArray(entry.artists)
+    && entry.artists.every((artist) => typeof artist === "string")
+    && (typeof entry.imageUrl === "string" || entry.imageUrl === null)
+    && typeof entry.externalUrl === "string"
+    && (entry.plays === undefined || typeof entry.plays === "number" && Number.isInteger(entry.plays) && entry.plays >= 0);
+  return Array.isArray(value.artists) && value.artists.every(item)
+    && Array.isArray(value.tracks) && value.tracks.every(item)
+    && (value.albums === undefined || Array.isArray(value.albums) && value.albums.every(item));
+}
+
 export function isStatsData(value: ApiResponse): value is StatsResponse {
   if (value.error !== "" || !isRecord(value.stats)) return false;
   const stats = value.stats;
@@ -158,6 +176,10 @@ export function isStatsData(value: ApiResponse): value is StatsResponse {
     && stats.topArtistsByMinutes.every(isRankedMetric)
     && isChartSeries(stats.songsListened)
     && isChartSeries(stats.artistsListened);
+}
+
+export function isTopDataResponse(value: ApiResponse): value is TopResponse {
+  return value.error === "" && isTopData(value.top);
 }
 
 export function summarizeLast24Hours(recent: RecentTrack[], now = Date.now()): TodayStats {

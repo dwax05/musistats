@@ -1,6 +1,6 @@
 import type { Express } from "express";
 import type { Db } from "mongodb";
-import { isTimeRange, rangeStart, type TimeRange } from "../analytics/range";
+import { CUSTOM_TIME_RANGE, isAnalyticsRange, rangeBounds, rangeStart, type AnalyticsRange, type RangeBounds, type TimeRange } from "../analytics/range";
 import { authPayload, requireAuth } from "../auth/routes";
 
 type StoredPlay = {
@@ -47,15 +47,17 @@ function labelFor(start: Date, end: Date): string {
   return month.format(start);
 }
 
-function buildBuckets(range: TimeRange, now: Date, firstPlay: Date | null): Bucket[] {
-  const start = rangeStart(range, now);
+function buildBuckets(range: AnalyticsRange, now: Date, firstPlay: Date | null, bounds?: RangeBounds): Bucket[] {
+  const start = range === CUSTOM_TIME_RANGE ? bounds?.start ?? null : rangeStart(range, now);
+  const end = range === CUSTOM_TIME_RANGE ? bounds?.end ?? now : now;
   if (range === "long_term" && !firstPlay) return [];
   const first = range === "long_term" ? firstPlay! : start!;
-  const count = range === "short_term" ? 28 : range === "medium_term" ? 90 : 120;
-  const width = (now.getTime() - first.getTime()) / count;
+  const days = (end.getTime() - first.getTime()) / (24 * 60 * 60 * 1000);
+  const count = range === "short_term" ? 28 : range === "medium_term" ? 90 : range === "long_term" ? 120 : days <= 31 ? Math.max(1, Math.ceil(days)) : days <= 180 ? 90 : 120;
+  const width = (end.getTime() - first.getTime()) / count;
   return Array.from({ length: count }, (_, index) => {
     const bucketStart = new Date(first.getTime() + index * width);
-    const bucketEnd = index === count - 1 ? now : new Date(first.getTime() + (index + 1) * width);
+    const bucketEnd = index === count - 1 ? end : new Date(first.getTime() + (index + 1) * width);
     return { start: bucketStart, end: bucketEnd, label: labelFor(bucketStart, bucketEnd) };
   });
 }
@@ -73,8 +75,8 @@ class StatsAccumulator {
   private readonly tallies: BucketTally[];
   private readonly artists = new Map<string, ArtistTally>();
 
-  constructor(range: TimeRange, now: Date, firstPlay: Date | null) {
-    this.buckets = buildBuckets(range, now, firstPlay);
+  constructor(range: AnalyticsRange, now: Date, firstPlay: Date | null, bounds?: RangeBounds) {
+    this.buckets = buildBuckets(range, now, firstPlay, bounds);
     this.tallies = this.buckets.map(() => ({ durationMs: 0, songs: 0, artists: new Set() }));
   }
 
@@ -115,26 +117,27 @@ class StatsAccumulator {
   }
 }
 
-export function buildStats(range: TimeRange, now: Date, plays: Iterable<StoredPlay>, firstPlay: Date | null) {
-  const accumulator = new StatsAccumulator(range, now, firstPlay);
+export function buildStats(range: AnalyticsRange, now: Date, plays: Iterable<StoredPlay>, firstPlay: Date | null, bounds?: RangeBounds) {
+  const accumulator = new StatsAccumulator(range, now, firstPlay, bounds);
   for (const play of plays) accumulator.add(play);
   return accumulator.result();
 }
 
 export function registerStatsRoutes(app: Express, db: Db) {
   app.post("/api/stats", requireAuth, async (req, res) => {
-    if (!isTimeRange(req.body?.range)) return res.status(400).json({ error: "invalid_range" });
+    if (!isAnalyticsRange(req.body?.range)) return res.status(400).json({ error: "invalid_range" });
     const { userId } = authPayload(req);
     const now = new Date();
-    const start = rangeStart(req.body.range, now);
-    const filter = start ? { userId, playedAt: { $gte: start } } : { userId };
+    const bounds = rangeBounds(req.body.range, now, req.body?.startDate, req.body?.endDate);
+    if (!bounds) return res.status(400).json({ error: "invalid_range" });
+    const filter = bounds.start || bounds.end ? { userId, playedAt: { ...(bounds.start ? { $gte: bounds.start } : {}), ...(bounds.end ? { $lt: bounds.end } : {}) } } : { userId };
 
     try {
       const first = req.body.range === "long_term"
         ? await db.collection<StoredPlay>("RecentPlays").findOne({ userId }, { sort: { playedAt: 1 }, projection: { playedAt: 1 } })
         : null;
       const cursor = db.collection<StoredPlay>("RecentPlays").find(filter).sort({ playedAt: 1 });
-      const stats = new StatsAccumulator(req.body.range, now, first?.playedAt ?? null);
+      const stats = new StatsAccumulator(req.body.range, bounds.end ?? now, first?.playedAt ?? null, bounds);
       for await (const play of cursor) stats.add(play);
       res.json({ error: "", stats: stats.result() });
     } catch (error) {
