@@ -1,0 +1,11 @@
+# Local dev: just Mongo. Client and server run via `npm run dev`.
+services:
+  mongo:
+    image: mongo:7
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data-dev:/data/db
+
+volumes:
+  mongo-data-dev:

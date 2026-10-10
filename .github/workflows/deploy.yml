@@ -1,0 +1,24 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to droplet
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          # build while old containers still serve traffic, then swap —
+          # the only downtime is the ~5s container swap in `up -d`
+          script: |
+            cd /srv/musistats
+            git pull origin main
+            docker compose build
+            docker compose up -d
+            docker image prune -f
