@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { summarizeLast24Hours } from "./routes";
+import { historyTop, summarizeLast24Hours } from "./routes";
 
 describe("dashboard 24-hour summary", () => {
   it("returns listening time and a complete hourly series from stored play durations", () => {
@@ -39,5 +39,16 @@ describe("dashboard 24-hour summary", () => {
 
     expect(summary.minutes).toBe(3);
     expect(summary.minutesComplete).toBe(false);
+  });
+});
+
+describe("dashboard top songs", () => {
+  it("groups repeated imported plays of the same song", () => {
+    const top = historyTop([
+      { trackId: "import:first-play", name: "Imported song", artists: ["Artist"], imageUrl: null, playedAt: new Date("2026-10-01T12:00:00.000Z") },
+      { trackId: "import:second-play", name: "Imported song", artists: ["Artist"], imageUrl: null, playedAt: new Date("2026-10-02T12:00:00.000Z") },
+    ]);
+
+    expect(top.tracks).toEqual([expect.objectContaining({ name: "Imported song", plays: 2 })]);
   });
 });
