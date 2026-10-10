@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { useAuth, type User } from "../auth/AuthProvider";
+import SegmentedControl from "../ui/SegmentedControl";
 import SpotifyMark from "../ui/SpotifyMark";
 import {
   RANGE_LABELS,
@@ -87,18 +88,12 @@ export default function Dashboard({ initialData, demoUser }: { initialData?: Das
             {data?.updatedAt ? `Updated ${new Date(data.updatedAt).toLocaleString()}` : "Your Spotify snapshot"}
           </p>
         </div>
-        <div className="flex w-fit rounded-xl border border-border-app bg-surface p-1" aria-label="Stats time range">
-          {(Object.keys(RANGE_LABELS) as TimeRange[]).map((value) => (
-            <button
-              key={value}
-              onClick={() => setRange(value)}
-              aria-pressed={range === value}
-              className={`rounded-lg px-3 py-2 text-xs font-semibold transition sm:px-4 ${range === value ? "bg-accent text-accent-fg shadow-[0_2px_0_#087c30]" : "text-muted hover:text-fg"}`}
-            >
-              {RANGE_LABELS[value]}
-            </button>
-          ))}
-        </div>
+        <SegmentedControl
+          ariaLabel="Stats time range"
+          options={(Object.keys(RANGE_LABELS) as TimeRange[]).map((value) => ({ value, label: RANGE_LABELS[value] }))}
+          value={range}
+          onChange={setRange}
+        />
       </section>
 
       {error ? (
