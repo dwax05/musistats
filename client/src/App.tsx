@@ -23,7 +23,7 @@ function SpotifyMark({ className = "" }: { className?: string }) {
   );
 }
 
-function ConnectScreen() {
+export function ConnectScreen() {
   const [authError] = useState(() => new URLSearchParams(window.location.search).get("auth_error"));
 
   useEffect(() => {
@@ -53,7 +53,7 @@ function ConnectScreen() {
         )}
 
         <a
-          href="/api/auth/spotify"
+          href={import.meta.env.DEV ? "http://127.0.0.1:5173/api/auth/spotify" : "/api/auth/spotify"}
           className="mt-7 flex w-full items-center justify-center gap-2.5 rounded-xl bg-accent px-4 py-3 font-semibold text-accent-fg shadow-[0_4px_0_#087c30] transition hover:brightness-110 active:translate-y-1 active:shadow-none focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-accent"
         >
           <SpotifyMark className="h-5 w-5" />
