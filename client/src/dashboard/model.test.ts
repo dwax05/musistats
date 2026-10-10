@@ -58,8 +58,6 @@ describe("dashboard response validation", () => {
         topArtistsByMinutes: metrics,
         songsListened: series,
         artistsListened: series,
-        averageAlbumReleaseYear: series,
-        averageFeaturesPerSong: series,
       },
     })).toBe(true);
     expect(isStatsData({ error: "", stats: { topArtistsByPlays: metrics } })).toBe(false);

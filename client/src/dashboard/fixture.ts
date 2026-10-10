@@ -121,8 +121,6 @@ const demoStats: StatsData = {
   ],
   songsListened: { labels: chartLabels, values: [9, 14, 8, 17, 22, 28, 16] },
   artistsListened: { labels: chartLabels, values: [4, 7, 5, 8, 10, 12, 9] },
-  averageAlbumReleaseYear: { labels: chartLabels, values: [2007, 2011, 2004, 2015, 2009, 2018, 2013] },
-  averageFeaturesPerSong: { labels: chartLabels, values: [0.4, 0.6, 0.3, 0.7, 0.5, 0.8, 0.6] },
 };
 
 export const DEMO_STATS: Record<TimeRange, StatsData> = {

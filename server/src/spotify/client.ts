@@ -25,9 +25,6 @@ export type RecentTrack = TrackSummary & {
   playedAt: string;
   durationMs: number;
   artistIds: string[];
-  albumArtistIds: string[];
-  albumReleaseDate: string | null;
-  albumReleaseDatePrecision: "year" | "month" | "day" | null;
 };
 export type SpotifyProfile = { id: string; displayName: string; avatarUrl: string | null };
 export type SpotifyTokens = { accessToken: string; refreshToken?: string };
@@ -103,11 +100,6 @@ function parseTrack(value: unknown): Omit<RecentTrack, "playedAt"> | null {
   const artistIds = Array.isArray(track.artists)
     ? track.artists.map((artist) => stringValue(optionalRecord(artist)?.id)).filter(Boolean)
     : [];
-  const albumArtistIds = Array.isArray(album?.artists)
-    ? album.artists.map((artist) => stringValue(optionalRecord(artist)?.id)).filter(Boolean)
-    : [];
-  const releaseDate = stringValue(album?.release_date);
-  const releaseDatePrecision = stringValue(album?.release_date_precision);
   return {
     id,
     name,
@@ -116,11 +108,6 @@ function parseTrack(value: unknown): Omit<RecentTrack, "playedAt"> | null {
     externalUrl: externalUrl(track.external_urls),
     durationMs,
     artistIds,
-    albumArtistIds,
-    albumReleaseDate: releaseDate || null,
-    albumReleaseDatePrecision: releaseDatePrecision === "year" || releaseDatePrecision === "month" || releaseDatePrecision === "day"
-      ? releaseDatePrecision
-      : null,
   };
 }
 

@@ -61,8 +61,6 @@ export type StatsData = {
   topArtistsByMinutes: RankedMetric[];
   songsListened: ChartSeries;
   artistsListened: ChartSeries;
-  averageAlbumReleaseYear: ChartSeries;
-  averageFeaturesPerSong: ChartSeries;
 };
 
 export type StatsResponse = ApiResponse & { stats: StatsData };
@@ -157,9 +155,7 @@ export function isStatsData(value: ApiResponse): value is StatsResponse {
     && Array.isArray(stats.topArtistsByMinutes)
     && stats.topArtistsByMinutes.every(isRankedMetric)
     && isChartSeries(stats.songsListened)
-    && isChartSeries(stats.artistsListened)
-    && isChartSeries(stats.averageAlbumReleaseYear)
-    && isChartSeries(stats.averageFeaturesPerSong);
+    && isChartSeries(stats.artistsListened);
 }
 
 export function summarizeLast24Hours(recent: RecentTrack[], now = Date.now()): TodayStats {
