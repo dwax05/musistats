@@ -1,0 +1,187 @@
+import type { Express } from "express";
+import type { Db } from "mongodb";
+import { isTimeRange, rangeStart, type TimeRange } from "../analytics/range";
+import { authPayload, requireAuth } from "../auth/routes";
+
+type StoredPlay = {
+  playedAt: Date;
+  durationMs?: number;
+  artists?: string[];
+  artistIds?: string[];
+  albumArtistIds?: string[];
+  albumReleaseDate?: string | null;
+  albumReleaseDatePrecision?: "year" | "month" | "day" | null;
+};
+
+type Bucket = { start: Date; end: Date; label: string };
+type ArtistTally = { name: string; plays: number; durationMs: number; hasKnownDuration: boolean };
+type BucketTally = {
+  durationMs: number;
+  songs: number;
+  artists: Set<string>;
+  releaseYearTotal: number;
+  releaseYearCount: number;
+  featuresTotal: number;
+};
+
+function normalizedName(name: string): string {
+  return name.normalize("NFKC").trim().replace(/\s+/g, " ").toLocaleLowerCase();
+}
+
+function creditedArtists(play: StoredPlay): [string, string][] {
+  const names = Array.isArray(play.artists) ? play.artists.filter((name): name is string => typeof name === "string" && Boolean(name)) : [];
+  const ids = Array.isArray(play.artistIds) ? play.artistIds : [];
+  const artists = new Map<string, string>();
+  names.forEach((name, index) => {
+    const id = ids[index];
+    const key = typeof id === "string" && id ? `id:${id}` : `name:${normalizedName(name)}`;
+    if (key !== "name:") artists.set(key, name);
+  });
+  return [...artists];
+}
+
+function knownDuration(play: StoredPlay): number | null {
+  return typeof play.durationMs === "number" && Number.isFinite(play.durationMs) && play.durationMs >= 0 ? play.durationMs : null;
+}
+
+function releaseYear(play: StoredPlay): number | null {
+  const value = play.albumReleaseDate;
+  if (typeof value !== "string" || !play.albumReleaseDatePrecision) return null;
+  const match = /^(\d{4})(?:-(\d{2})(?:-(\d{2}))?)?$/.exec(value);
+  if (!match) return null;
+  const year = Number(match[1]);
+  const month = play.albumReleaseDatePrecision === "year" ? 7 : Number(match[2]);
+  const day = play.albumReleaseDatePrecision === "year" ? 1 : play.albumReleaseDatePrecision === "month" ? 15 : Number(match[3]);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  if (Number.isNaN(date.getTime()) || date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) return null;
+  const yearStart = Date.UTC(year, 0, 1);
+  const nextYear = Date.UTC(year + 1, 0, 1);
+  return year + (date.getTime() - yearStart) / (nextYear - yearStart);
+}
+
+function featureCount(play: StoredPlay): number {
+  if (!Array.isArray(play.artistIds) || !Array.isArray(play.albumArtistIds)) return 0;
+  const albumArtists = new Set(play.albumArtistIds.filter((id): id is string => typeof id === "string"));
+  return new Set(play.artistIds.filter((id): id is string => typeof id === "string" && !albumArtists.has(id))).size;
+}
+
+function labelFor(start: Date, end: Date): string {
+  const day = new Intl.DateTimeFormat("en", { month: "short", day: "numeric", timeZone: "UTC" });
+  const month = new Intl.DateTimeFormat("en", { month: "short", year: "numeric", timeZone: "UTC" });
+  const span = end.getTime() - start.getTime();
+  if (span <= 24 * 60 * 60 * 1000) return day.format(start);
+  if (span < 32 * 24 * 60 * 60 * 1000) return `${day.format(start)}–${day.format(new Date(end.getTime() - 1))}`;
+  return month.format(start);
+}
+
+function buildBuckets(range: TimeRange, now: Date, firstPlay: Date | null): Bucket[] {
+  const start = rangeStart(range, now);
+  if (range === "long_term" && !firstPlay) return [];
+  const first = range === "long_term" ? firstPlay! : start!;
+  const count = range === "short_term" ? 28 : range === "medium_term" ? 90 : 120;
+  const width = (now.getTime() - first.getTime()) / count;
+  return Array.from({ length: count }, (_, index) => {
+    const bucketStart = new Date(first.getTime() + index * width);
+    const bucketEnd = index === count - 1 ? now : new Date(first.getTime() + (index + 1) * width);
+    return { start: bucketStart, end: bucketEnd, label: labelFor(bucketStart, bucketEnd) };
+  });
+}
+
+function bucketFor(buckets: Bucket[], playedAt: Date): number | null {
+  if (!buckets.length || playedAt < buckets[0]!.start || playedAt > buckets.at(-1)!.end) return null;
+  const start = buckets[0]!.start.getTime();
+  const width = (buckets.at(-1)!.end.getTime() - start) / buckets.length;
+  if (width === 0) return buckets.length - 1;
+  return Math.min(buckets.length - 1, Math.floor((playedAt.getTime() - start) / width));
+}
+
+class StatsAccumulator {
+  private readonly buckets: Bucket[];
+  private readonly tallies: BucketTally[];
+  private readonly artists = new Map<string, ArtistTally>();
+
+  constructor(range: TimeRange, now: Date, firstPlay: Date | null) {
+    this.buckets = buildBuckets(range, now, firstPlay);
+    this.tallies = this.buckets.map(() => ({ durationMs: 0, songs: 0, artists: new Set(), releaseYearTotal: 0, releaseYearCount: 0, featuresTotal: 0 }));
+  }
+
+  add(play: StoredPlay) {
+    if (!(play.playedAt instanceof Date) || Number.isNaN(play.playedAt.getTime())) return;
+    const bucketIndex = bucketFor(this.buckets, play.playedAt);
+    if (bucketIndex === null) return;
+    const tally = this.tallies[bucketIndex]!;
+    const durationMs = knownDuration(play);
+    tally.durationMs += durationMs ?? 0;
+    tally.songs += 1;
+    tally.featuresTotal += featureCount(play);
+    const year = releaseYear(play);
+    if (year !== null) {
+      tally.releaseYearTotal += year;
+      tally.releaseYearCount += 1;
+    }
+    for (const [key, name] of creditedArtists(play)) {
+      tally.artists.add(key);
+      const artist = this.artists.get(key) ?? { name, plays: 0, durationMs: 0, hasKnownDuration: false };
+      artist.plays += 1;
+      artist.durationMs += durationMs ?? 0;
+      artist.hasKnownDuration ||= durationMs !== null;
+      this.artists.set(key, artist);
+    }
+  }
+
+  result() {
+    const labels = this.buckets.map((bucket) => bucket.label);
+    const releaseYears = this.tallies.map((tally) => tally.releaseYearCount ? tally.releaseYearTotal / tally.releaseYearCount : null);
+    const firstKnownRelease = releaseYears.find((value): value is number => value !== null) ?? 0;
+    let previousRelease = firstKnownRelease;
+    const averageAlbumReleaseYear = releaseYears.map((value) => {
+      if (value !== null) previousRelease = value;
+      return previousRelease;
+    });
+    const rank = (value: "plays" | "durationMs") => [...this.artists.values()]
+      .filter((artist) => value !== "durationMs" || artist.hasKnownDuration)
+      .sort((left, right) => right[value] - left[value] || (value === "plays" ? right.durationMs - left.durationMs : 0) || left.name.localeCompare(right.name))
+      .slice(0, 10)
+      .map((artist) => ({ name: artist.name, value: value === "durationMs" ? Math.round(artist.durationMs / 60000) : artist.plays }));
+    const series = (values: number[]) => ({ labels, values });
+
+    return {
+      topArtistsByPlays: rank("plays"),
+      listeningDistribution: series(this.tallies.map((tally) => Math.round(tally.durationMs / 60000))),
+      topArtistsByMinutes: rank("durationMs"),
+      songsListened: series(this.tallies.map((tally) => tally.songs)),
+      artistsListened: series(this.tallies.map((tally) => tally.artists.size)),
+      averageAlbumReleaseYear: series(averageAlbumReleaseYear),
+      averageFeaturesPerSong: series(this.tallies.map((tally) => tally.songs ? tally.featuresTotal / tally.songs : 0)),
+    };
+  }
+}
+
+export function buildStats(range: TimeRange, now: Date, plays: Iterable<StoredPlay>, firstPlay: Date | null) {
+  const accumulator = new StatsAccumulator(range, now, firstPlay);
+  for (const play of plays) accumulator.add(play);
+  return accumulator.result();
+}
+
+export function registerStatsRoutes(app: Express, db: Db) {
+  app.post("/api/stats", requireAuth, async (req, res) => {
+    if (!isTimeRange(req.body?.range)) return res.status(400).json({ error: "invalid_range" });
+    const { userId } = authPayload(req);
+    const now = new Date();
+    const start = rangeStart(req.body.range, now);
+    const filter = start ? { userId, playedAt: { $gte: start } } : { userId };
+
+    try {
+      const first = req.body.range === "long_term"
+        ? await db.collection<StoredPlay>("RecentPlays").findOne({ userId }, { sort: { playedAt: 1 }, projection: { playedAt: 1 } })
+        : null;
+      const cursor = db.collection<StoredPlay>("RecentPlays").find(filter).sort({ playedAt: 1 });
+      const stats = new StatsAccumulator(req.body.range, now, first?.playedAt ?? null);
+      for await (const play of cursor) stats.add(play);
+      res.json({ error: "", stats: stats.result() });
+    } catch (error) {
+      console.error(`Stats query failed for ${userId}:`, error);
+      res.status(503).json({ error: "stats_unavailable" });
+    }
+  });
+}

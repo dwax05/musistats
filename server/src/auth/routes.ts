@@ -183,6 +183,7 @@ export function registerAuthRoutes(app: Express, db: Db) {
     await Promise.all([
       db.collection("RecentPlays").deleteMany({ userId }),
       db.collection("TopSnapshots").deleteMany({ userId }),
+      db.collection("StreamingHistoryImports").deleteMany({ userId }),
     ]);
     await users.deleteOne({ _id: new ObjectId(userId) });
     res.clearCookie(REFRESH_COOKIE, sessionCookieOptions());

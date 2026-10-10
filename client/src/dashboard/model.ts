@@ -45,6 +45,28 @@ export type ListeningSession = {
 
 export type SessionsData = ApiResponse & { sessions: ListeningSession[] };
 
+export type ChartSeries = {
+  labels: string[];
+  values: number[];
+};
+
+export type RankedMetric = {
+  name: string;
+  value: number;
+};
+
+export type StatsData = {
+  topArtistsByPlays: RankedMetric[];
+  listeningDistribution: ChartSeries;
+  topArtistsByMinutes: RankedMetric[];
+  songsListened: ChartSeries;
+  artistsListened: ChartSeries;
+  averageAlbumReleaseYear: ChartSeries;
+  averageFeaturesPerSong: ChartSeries;
+};
+
+export type StatsResponse = ApiResponse & { stats: StatsData };
+
 export type TodayStats = {
   songs: number;
   minutes: number | null;
@@ -111,6 +133,33 @@ export function isSessionsData(value: ApiResponse): value is SessionsData {
     && typeof session.artists === "number" && Number.isInteger(session.artists) && session.artists >= 0
     && (isListeningHighlight(session.topArtist) || session.topArtist === null)
     && Array.isArray(session.tracks));
+}
+
+function isChartSeries(value: unknown): value is ChartSeries {
+  return isRecord(value)
+    && Array.isArray(value.labels)
+    && value.labels.every((label) => typeof label === "string")
+    && Array.isArray(value.values)
+    && value.values.length === value.labels.length
+    && value.values.every((item) => typeof item === "number" && Number.isFinite(item) && item >= 0);
+}
+
+function isRankedMetric(value: unknown): value is RankedMetric {
+  return isRecord(value) && typeof value.name === "string" && typeof value.value === "number" && Number.isFinite(value.value) && value.value >= 0;
+}
+
+export function isStatsData(value: ApiResponse): value is StatsResponse {
+  if (value.error !== "" || !isRecord(value.stats)) return false;
+  const stats = value.stats;
+  return Array.isArray(stats.topArtistsByPlays)
+    && stats.topArtistsByPlays.every(isRankedMetric)
+    && isChartSeries(stats.listeningDistribution)
+    && Array.isArray(stats.topArtistsByMinutes)
+    && stats.topArtistsByMinutes.every(isRankedMetric)
+    && isChartSeries(stats.songsListened)
+    && isChartSeries(stats.artistsListened)
+    && isChartSeries(stats.averageAlbumReleaseYear)
+    && isChartSeries(stats.averageFeaturesPerSong);
 }
 
 export function summarizeLast24Hours(recent: RecentTrack[], now = Date.now()): TodayStats {

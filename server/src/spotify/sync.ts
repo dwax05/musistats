@@ -11,6 +11,7 @@ import {
   type TimeRange,
   type TrackSummary,
 } from "./client";
+import { ensureImportIndexes } from "../imports/jobs";
 
 type SpotifyUser = {
   _id: ObjectId;
@@ -23,9 +24,11 @@ type TopItems = Record<TimeRange, { artists: ArtistSummary[]; tracks: TrackSumma
 export async function ensureSpotifyIndexes(db: Db) {
   await Promise.all([
     db.collection("Users").createIndex({ spotifyId: 1 }, { unique: true }),
+    db.collection("RecentPlays").createIndex({ userId: 1, playedAt: 1 }),
     db.collection("RecentPlays").createIndex({ userId: 1, playedAt: -1 }),
     db.collection("RecentPlays").createIndex({ userId: 1, trackId: 1, playedAt: 1 }, { unique: true }),
     db.collection("TopSnapshots").createIndex({ userId: 1, capturedDay: -1 }, { unique: true }),
+    ensureImportIndexes(db),
   ]);
 }
 
@@ -57,6 +60,11 @@ async function syncConnectedUser(db: Db, user: SpotifyUser, suppliedAccessToken?
             imageUrl: track.imageUrl,
             externalUrl: track.externalUrl,
             playedAt: new Date(track.playedAt),
+            durationMs: track.durationMs,
+            artistIds: track.artistIds,
+            albumArtistIds: track.albumArtistIds,
+            albumReleaseDate: track.albumReleaseDate,
+            albumReleaseDatePrecision: track.albumReleaseDatePrecision,
           },
         },
         upsert: true,

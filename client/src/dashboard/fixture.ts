@@ -1,5 +1,5 @@
 import type { User } from "../auth/AuthProvider";
-import type { Album, Artist, DashboardData, ListeningSession, TimeRange, Track } from "./model";
+import type { Album, Artist, DashboardData, ListeningSession, StatsData, TimeRange, Track } from "./model";
 
 function artwork(letter: string, color: string) {
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" fill="${color}"/><circle cx="72" cy="28" r="32" fill="#fff" opacity=".12"/><text x="50" y="64" text-anchor="middle" font-family="system-ui" font-size="42" font-weight="700" fill="#fff">${letter}</text></svg>`;
@@ -100,4 +100,33 @@ export const DEMO_SESSIONS: Record<TimeRange, ListeningSession[]> = {
   short_term: demoSessions,
   medium_term: demoSessions,
   long_term: demoSessions,
+};
+
+const chartLabels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+const demoStats: StatsData = {
+  topArtistsByPlays: [
+    { name: "Solstice FM", value: 42 },
+    { name: "Juniper", value: 34 },
+    { name: "North Arcade", value: 27 },
+    { name: "Soft Static", value: 21 },
+    { name: "Afterimage", value: 18 },
+  ],
+  listeningDistribution: { labels: chartLabels, values: [21, 34, 19, 42, 51, 68, 39] },
+  topArtistsByMinutes: [
+    { name: "Solstice FM", value: 156 },
+    { name: "Juniper", value: 121 },
+    { name: "North Arcade", value: 98 },
+    { name: "Soft Static", value: 84 },
+    { name: "Afterimage", value: 73 },
+  ],
+  songsListened: { labels: chartLabels, values: [9, 14, 8, 17, 22, 28, 16] },
+  artistsListened: { labels: chartLabels, values: [4, 7, 5, 8, 10, 12, 9] },
+  averageAlbumReleaseYear: { labels: chartLabels, values: [2007, 2011, 2004, 2015, 2009, 2018, 2013] },
+  averageFeaturesPerSong: { labels: chartLabels, values: [0.4, 0.6, 0.3, 0.7, 0.5, 0.8, 0.6] },
+};
+
+export const DEMO_STATS: Record<TimeRange, StatsData> = {
+  short_term: demoStats,
+  medium_term: demoStats,
+  long_term: demoStats,
 };

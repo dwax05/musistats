@@ -1,10 +1,10 @@
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
+import { TIME_RANGES, type TimeRange } from "../analytics/range";
 
 const ACCOUNTS_URL = "https://accounts.spotify.com";
 const API_URL = "https://api.spotify.com/v1";
 export const SPOTIFY_SCOPES = ["user-read-private", "user-top-read", "user-read-recently-played"];
-export const TIME_RANGES = ["short_term", "medium_term", "long_term"] as const;
-export type TimeRange = (typeof TIME_RANGES)[number];
+export { TIME_RANGES, type TimeRange } from "../analytics/range";
 
 export type ArtistSummary = {
   id: string;
@@ -21,7 +21,14 @@ export type TrackSummary = {
   externalUrl: string;
 };
 
-export type RecentTrack = TrackSummary & { playedAt: string };
+export type RecentTrack = TrackSummary & {
+  playedAt: string;
+  durationMs: number;
+  artistIds: string[];
+  albumArtistIds: string[];
+  albumReleaseDate: string | null;
+  albumReleaseDatePrecision: "year" | "month" | "day" | null;
+};
 export type SpotifyProfile = { id: string; displayName: string; avatarUrl: string | null };
 export type SpotifyTokens = { accessToken: string; refreshToken?: string };
 
@@ -48,6 +55,10 @@ function optionalRecord(value: unknown): Record<string, unknown> | null {
 
 function stringValue(value: unknown): string {
   return typeof value === "string" ? value : "";
+}
+
+function numberValue(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null;
 }
 
 function firstImage(value: unknown): string | null {
@@ -77,22 +88,39 @@ function parseArtist(value: unknown): ArtistSummary | null {
   };
 }
 
-function parseTrack(value: unknown): TrackSummary | null {
+function parseTrack(value: unknown): Omit<RecentTrack, "playedAt"> | null {
   const track = optionalRecord(value);
   if (!track) return null;
   const id = stringValue(track.id);
   const name = stringValue(track.name);
   if (!id || !name) return null;
   const album = optionalRecord(track.album);
+  const durationMs = numberValue(track.duration_ms);
+  if (durationMs === null) return null;
   const artists = Array.isArray(track.artists)
     ? track.artists.map((artist) => stringValue(optionalRecord(artist)?.name)).filter(Boolean)
     : [];
+  const artistIds = Array.isArray(track.artists)
+    ? track.artists.map((artist) => stringValue(optionalRecord(artist)?.id)).filter(Boolean)
+    : [];
+  const albumArtistIds = Array.isArray(album?.artists)
+    ? album.artists.map((artist) => stringValue(optionalRecord(artist)?.id)).filter(Boolean)
+    : [];
+  const releaseDate = stringValue(album?.release_date);
+  const releaseDatePrecision = stringValue(album?.release_date_precision);
   return {
     id,
     name,
     artists,
     imageUrl: firstImage(album?.images),
     externalUrl: externalUrl(track.external_urls),
+    durationMs,
+    artistIds,
+    albumArtistIds,
+    albumReleaseDate: releaseDate || null,
+    albumReleaseDatePrecision: releaseDatePrecision === "year" || releaseDatePrecision === "month" || releaseDatePrecision === "day"
+      ? releaseDatePrecision
+      : null,
   };
 }
 
@@ -174,7 +202,9 @@ export async function getTopArtists(accessToken: string, range: TimeRange): Prom
 
 export async function getTopTracks(accessToken: string, range: TimeRange): Promise<TrackSummary[]> {
   const data = await spotifyGet(accessToken, `/me/top/tracks?limit=50&time_range=${range}`);
-  return Array.isArray(data.items) ? data.items.map(parseTrack).filter((item): item is TrackSummary => item !== null) : [];
+  return Array.isArray(data.items)
+    ? data.items.map(parseTrack).filter((item): item is Omit<RecentTrack, "playedAt"> => item !== null)
+    : [];
 }
 
 export async function getRecentTracks(accessToken: string, after?: number): Promise<RecentTrack[]> {

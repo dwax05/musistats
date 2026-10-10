@@ -34,13 +34,14 @@ export function useAuth(): AuthContext {
 }
 
 async function post(url: string, body: unknown, accessToken?: string): Promise<Response> {
+  const isMultipart = body instanceof FormData;
   return fetch(url, {
     method: "POST",
     headers: {
-      "Content-Type": "application/json",
+      ...(isMultipart ? {} : { "Content-Type": "application/json" }),
       ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
     },
-    body: JSON.stringify(body ?? {}),
+    body: isMultipart ? body : JSON.stringify(body ?? {}),
   });
 }
 
