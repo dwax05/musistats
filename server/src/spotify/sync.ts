@@ -6,7 +6,9 @@ import {
   getRecentTracks,
   getTopArtists,
   getTopTracks,
+  rankTopAlbums,
   refreshSpotifyToken,
+  type AlbumSummary,
   type ArtistSummary,
   type TimeRange,
   type TrackSummary,
@@ -19,7 +21,8 @@ type SpotifyUser = {
   lastPlayedAt?: Date;
 };
 
-type TopItems = Record<TimeRange, { artists: ArtistSummary[]; tracks: TrackSummary[] }>;
+type TopItems = Record<TimeRange, { artists: ArtistSummary[]; tracks: TrackSummary[]; albums: AlbumSummary[] }>;
+type TopSnapshot = { userId: string; capturedDay: string; top: Partial<TopItems> };
 
 export async function ensureSpotifyIndexes(db: Db) {
   await Promise.all([
@@ -70,14 +73,15 @@ async function syncConnectedUser(db: Db, user: SpotifyUser, suppliedAccessToken?
   }
 
   const capturedDay = new Date().toISOString().slice(0, 10);
-  const hasToday = await db.collection("TopSnapshots").findOne({ userId: user._id.toString(), capturedDay });
-  if (forceTop || !hasToday) {
+  const hasToday = await db.collection<TopSnapshot>("TopSnapshots").findOne({ userId: user._id.toString(), capturedDay });
+  const needsAlbums = TIME_RANGES.some((range) => !Array.isArray(hasToday?.top?.[range]?.albums));
+  if (forceTop || !hasToday || needsAlbums) {
     const entries = await Promise.all(TIME_RANGES.map(async (range) => {
       const [artists, tracks] = await Promise.all([
         getTopArtists(accessToken, range),
         getTopTracks(accessToken, range),
       ]);
-      return [range, { artists, tracks }] as const;
+      return [range, { artists, tracks: tracks.map(({ album: _album, ...track }) => track), albums: rankTopAlbums(tracks) }] as const;
     }));
     const top = Object.fromEntries(entries) as TopItems;
     await db.collection("TopSnapshots").updateOne(

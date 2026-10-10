@@ -3,9 +3,9 @@ import type { Express } from "express";
 import { authPayload, requireAuth } from "../auth/routes";
 
 const EMPTY_TOP = {
-  short_term: { artists: [], tracks: [] },
-  medium_term: { artists: [], tracks: [] },
-  long_term: { artists: [], tracks: [] },
+  short_term: { artists: [], tracks: [], albums: [] },
+  medium_term: { artists: [], tracks: [], albums: [] },
+  long_term: { artists: [], tracks: [], albums: [] },
 };
 
 type DashboardPlay = {

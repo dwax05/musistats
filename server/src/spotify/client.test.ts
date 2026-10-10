@@ -4,6 +4,8 @@ import {
   decryptSpotifyToken,
   encryptSpotifyToken,
   getRecentTracks,
+  getTopTracks,
+  rankTopAlbums,
   spotifyAuthorizeUrl,
 } from "./client";
 
@@ -56,5 +58,51 @@ describe("Spotify OAuth", () => {
       durationMs: 210000,
       artistIds: ["artist-1", "artist-2"],
     })]);
+  });
+
+  it("keeps album details from top tracks", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        items: [{
+          id: "track-1",
+          name: "Song",
+          duration_ms: 210000,
+          artists: [{ id: "artist-1", name: "Artist" }],
+          album: {
+            id: "album-1",
+            name: "Album",
+            artists: [{ id: "artist-1", name: "Artist" }],
+            images: [{ url: "https://image.test/album.jpg" }],
+            external_urls: { spotify: "https://open.spotify.com/album/album-1" },
+          },
+          external_urls: { spotify: "https://open.spotify.com/track/track-1" },
+        }],
+      }),
+    }));
+
+    await expect(getTopTracks("access-token", "short_term")).resolves.toEqual([expect.objectContaining({
+      album: {
+        id: "album-1",
+        name: "Album",
+        artists: ["Artist"],
+        imageUrl: "https://image.test/album.jpg",
+        externalUrl: "https://open.spotify.com/album/album-1",
+      },
+    })]);
+  });
+
+  it("ranks albums by their appearances in top tracks", () => {
+    const album = (id: string, name: string) => ({ id, name, artists: ["Artist"], imageUrl: null, externalUrl: "" });
+    const track = (id: string, value: ReturnType<typeof album>) => ({ id, name: id, artists: ["Artist"], imageUrl: null, externalUrl: "", album: value });
+
+    expect(rankTopAlbums([
+      track("track-1", album("album-1", "First")),
+      track("track-2", album("album-2", "Second")),
+      track("track-3", album("album-1", "First")),
+    ])).toEqual([
+      album("album-1", "First"),
+      album("album-2", "Second"),
+    ]);
   });
 });

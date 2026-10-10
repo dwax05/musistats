@@ -21,6 +21,16 @@ export type TrackSummary = {
   externalUrl: string;
 };
 
+export type AlbumSummary = {
+  id: string;
+  name: string;
+  artists: string[];
+  imageUrl: string | null;
+  externalUrl: string;
+};
+
+export type TopTrack = TrackSummary & { album: AlbumSummary | null };
+
 export type RecentTrack = TrackSummary & {
   playedAt: string;
   durationMs: number;
@@ -85,13 +95,30 @@ function parseArtist(value: unknown): ArtistSummary | null {
   };
 }
 
-function parseTrack(value: unknown): Omit<RecentTrack, "playedAt"> | null {
+function parseAlbum(value: unknown): AlbumSummary | null {
+  const album = optionalRecord(value);
+  if (!album) return null;
+  const id = stringValue(album.id);
+  const name = stringValue(album.name);
+  if (!id || !name) return null;
+  return {
+    id,
+    name,
+    artists: Array.isArray(album.artists)
+      ? album.artists.map((artist) => stringValue(optionalRecord(artist)?.name)).filter(Boolean)
+      : [],
+    imageUrl: firstImage(album.images),
+    externalUrl: externalUrl(album.external_urls),
+  };
+}
+
+function parseTrack(value: unknown): Omit<RecentTrack, "playedAt"> & { album: AlbumSummary | null } | null {
   const track = optionalRecord(value);
   if (!track) return null;
   const id = stringValue(track.id);
   const name = stringValue(track.name);
   if (!id || !name) return null;
-  const album = optionalRecord(track.album);
+  const album = parseAlbum(track.album);
   const durationMs = numberValue(track.duration_ms);
   if (durationMs === null) return null;
   const artists = Array.isArray(track.artists)
@@ -104,10 +131,11 @@ function parseTrack(value: unknown): Omit<RecentTrack, "playedAt"> | null {
     id,
     name,
     artists,
-    imageUrl: firstImage(album?.images),
+    imageUrl: album?.imageUrl ?? null,
     externalUrl: externalUrl(track.external_urls),
     durationMs,
     artistIds,
+    album,
   };
 }
 
@@ -187,11 +215,25 @@ export async function getTopArtists(accessToken: string, range: TimeRange): Prom
   return Array.isArray(data.items) ? data.items.map(parseArtist).filter((item): item is ArtistSummary => item !== null) : [];
 }
 
-export async function getTopTracks(accessToken: string, range: TimeRange): Promise<TrackSummary[]> {
+export async function getTopTracks(accessToken: string, range: TimeRange): Promise<TopTrack[]> {
   const data = await spotifyGet(accessToken, `/me/top/tracks?limit=50&time_range=${range}`);
   return Array.isArray(data.items)
-    ? data.items.map(parseTrack).filter((item): item is Omit<RecentTrack, "playedAt"> => item !== null)
+    ? data.items.map(parseTrack).filter((item): item is Omit<RecentTrack, "playedAt"> & { album: AlbumSummary | null } => item !== null)
     : [];
+}
+
+export function rankTopAlbums(tracks: TopTrack[]): AlbumSummary[] {
+  const albums = new Map<string, { album: AlbumSummary; tracks: number; firstIndex: number }>();
+  tracks.forEach((track, index) => {
+    if (!track.album) return;
+    const existing = albums.get(track.album.id);
+    if (existing) existing.tracks += 1;
+    else albums.set(track.album.id, { album: track.album, tracks: 1, firstIndex: index });
+  });
+  return [...albums.values()]
+    .sort((left, right) => right.tracks - left.tracks || left.firstIndex - right.firstIndex)
+    .slice(0, 10)
+    .map(({ album }) => album);
 }
 
 export async function getRecentTracks(accessToken: string, after?: number): Promise<RecentTrack[]> {
@@ -204,7 +246,9 @@ export async function getRecentTracks(accessToken: string, after?: number): Prom
     if (!item) return [];
     const track = parseTrack(item.track);
     const playedAt = stringValue(item.played_at);
-    return track && playedAt ? [{ ...track, playedAt }] : [];
+    if (!track || !playedAt) return [];
+    const { album: _album, ...recentTrack } = track;
+    return [{ ...recentTrack, playedAt }];
   });
 }
 
