@@ -1,6 +1,6 @@
 import Busboy from "busboy";
 import type { Express, Request } from "express";
-import type { Db } from "mongodb";
+import type { Collection, Db } from "mongodb";
 import yauzl from "yauzl";
 import { authPayload, requireAuth } from "../auth/routes";
 import { createQueuedImport, isActiveImport, publicImportSummary, type ImportCounts, type StreamingHistoryImport } from "./jobs";
@@ -35,6 +35,63 @@ type ParsedExport = {
   skippedByReason: Record<string, number>;
   dateRange: { start: string; end: string } | null;
 };
+
+async function processImport(db: Db, imports: Collection<StreamingHistoryImport>, recentPlays: Collection<StoredImportPlay>, job: StreamingHistoryImport, uploads: Upload[]) {
+  const update = (status: StreamingHistoryImport["status"], fields: Record<string, unknown> = {}) => (
+    imports.updateOne({ id: job.id, active: true }, { $set: { status, ...fields } })
+  );
+  try {
+    if (!(await update("validating", { startedAt: new Date() })).matchedCount) return;
+    const parsed = await parseExport(uploads);
+    if (!(await update("importing", {
+      sourceKinds: parsed.sourceKinds,
+      parserVersions: ["1"],
+      dateRange: parsed.dateRange,
+      counts: parsed.counts,
+      skippedByReason: parsed.skippedByReason,
+    })).matchedCount) return;
+    const writes = parsed.plays.map((play) => {
+      const fingerprint = playFingerprint(job.userId, play);
+      return {
+        updateOne: {
+          filter: { userId: job.userId, fingerprint },
+          update: {
+            $set: { trackId: `import:${fingerprint}` },
+            $setOnInsert: {
+              userId: job.userId,
+              fingerprint,
+              name: play.trackName,
+              artists: [play.artistName],
+              imageUrl: null,
+              albumName: play.albumName,
+              playedAt: new Date(play.endedAt),
+              durationMs: play.durationMs,
+              hasLiveSyncSource: false,
+            },
+            $addToSet: { sourceImportIds: job.id },
+          },
+          upsert: true,
+        },
+      };
+    });
+    const result = writes.length ? await recentPlays.bulkWrite(writes, { ordered: false }) : { upsertedCount: 0 };
+    const completion = await imports.updateOne({ id: job.id, active: true }, {
+      $set: {
+        status: "completed",
+        active: false,
+        completedAt: new Date(),
+        counts: { ...parsed.counts, tracksImported: result.upsertedCount, duplicates: parsed.plays.length - result.upsertedCount },
+      },
+    });
+    if (completion.matchedCount) await db.collection("TopSnapshots").deleteMany({ userId: job.userId });
+  } catch (error) {
+    const detail = error as { code?: unknown };
+    await imports.updateOne({ id: job.id, active: true }, {
+      $set: { status: "failed", active: false, completedAt: new Date(), failureCode: typeof detail.code === "string" ? detail.code : "import_failed" },
+    });
+    console.error("Spotify history import failed", error);
+  }
+}
 
 class ImportError extends Error {
   constructor(readonly code: string) {
@@ -190,44 +247,10 @@ export function registerImportRoutes(app: Express, db: Db) {
     try {
       const uploads = await readUpload(req);
       if (!uploads.length) return res.status(400).json({ error: "no_files" });
-      const parsed = await parseExport(uploads);
       const job = createQueuedImport(userId);
-      const writes = parsed.plays.map((play) => {
-        const fingerprint = playFingerprint(userId, play);
-        return {
-          updateOne: {
-            filter: { userId, fingerprint },
-          update: {
-            $set: { trackId: `import:${fingerprint}` },
-            $setOnInsert: {
-              userId,
-              fingerprint,
-              name: play.trackName,
-              artists: [play.artistName],
-              imageUrl: null,
-              albumName: play.albumName,
-              playedAt: new Date(play.endedAt),
-              durationMs: play.durationMs,
-              hasLiveSyncSource: false,
-            },
-            $addToSet: { sourceImportIds: job.id },
-          },
-          upsert: true,
-        },
-        };
-      });
-      const result = writes.length ? await recentPlays.bulkWrite(writes, { ordered: false }) : { upsertedCount: 0 };
-      job.status = "completed";
-      job.active = false;
-      job.startedAt = job.createdAt;
-      job.completedAt = new Date();
-      job.sourceKinds = parsed.sourceKinds;
-      job.parserVersions = ["1"];
-      job.dateRange = parsed.dateRange;
-      job.counts = { ...parsed.counts, tracksImported: result.upsertedCount, duplicates: parsed.plays.length - result.upsertedCount };
-      job.skippedByReason = parsed.skippedByReason;
       await imports.insertOne(job);
-      await db.collection("TopSnapshots").deleteMany({ userId });
+      // shortcut: import workers are in-process; use a durable queue when imports must survive server restarts.
+      void processImport(db, imports, recentPlays, job, uploads);
       return res.status(202).json({ error: "", import: publicImportSummary(job, 1500) });
     } catch (error) {
       if (error instanceof ImportError) return res.status(uploadStatus(error.code)).json({ error: error.code });
@@ -254,6 +277,14 @@ export function registerImportRoutes(app: Express, db: Db) {
     const job = await imports.findOne({ id: req.body.importId, userId });
     if (!job) return res.status(404).json({ error: "import_not_found" });
     res.json({ error: "", import: publicImportSummary(job, isActiveImport(job.status) ? 1500 : undefined) });
+  });
+
+  app.post("/api/imports/spotify-history/cancel", requireAuth, async (req, res) => {
+    const { userId } = authPayload(req);
+    if (!validImportId(req.body?.importId)) return res.status(400).json({ error: "invalid_import_id" });
+    const result = await imports.updateOne({ id: req.body.importId, userId, active: true }, { $set: { status: "cancelled", active: false, completedAt: new Date() } });
+    if (!result.matchedCount) return res.status(404).json({ error: "import_not_found" });
+    res.json({ error: "", import: { id: req.body.importId, status: "cancelled" } });
   });
 
   app.post("/api/imports/spotify-history/delete", requireAuth, async (req, res) => {

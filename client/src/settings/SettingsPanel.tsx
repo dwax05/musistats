@@ -24,6 +24,14 @@ function formatRange(dateRange: ImportSummary["dateRange"]) {
   return `${format.format(new Date(dateRange.start))} – ${format.format(new Date(dateRange.end))}`;
 }
 
+function progressFor(status: ImportSummary["status"]) {
+  if (status === "queued") return 10;
+  if (status === "validating") return 35;
+  if (status === "importing") return 75;
+  if (status === "enriching") return 90;
+  return 100;
+}
+
 function pendingImport(imported: { id: string; status: ImportSummary["status"]; sourceKinds: ImportSummary["sourceKinds"]; createdAt: string }): ImportSummary {
   return {
     ...imported,
@@ -36,9 +44,12 @@ function pendingImport(imported: { id: string; status: ImportSummary["status"]; 
   };
 }
 
-function ImportRow({ imported, onCancel, onDelete, busy }: { imported: ImportSummary; onCancel: (id: string) => void; onDelete: (id: string) => void; busy: boolean }) {
+function ImportRow({ imported, onCancel, onDelete, busy, confirmingDelete }: { imported: ImportSummary; onCancel: (id: string) => void; onDelete: (id: string) => void; busy: boolean; confirmingDelete: boolean }) {
   const active = isActiveImport(imported.status);
-  return <li className="rounded-2xl border border-border-app/80 bg-surface-raised/50 p-4 sm:p-5"><div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start"><div><div className="flex flex-wrap items-center gap-2"><h3 className="text-sm font-semibold text-fg">{sourceLabel(imported.sourceKinds)}</h3><span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${imported.status === "completed" ? "bg-accent/15 text-accent" : imported.status === "failed" ? "bg-error/10 text-error" : "bg-surface text-muted"}`}>{formatStatus(imported.status)}</span></div><p className="mt-1 text-xs text-muted">{formatRange(imported.dateRange)} · Started {new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", year: "numeric" }).format(new Date(imported.createdAt))}</p></div>{active ? <button type="button" onClick={() => onCancel(imported.id)} disabled={busy} className="rounded-lg border border-border-app px-3 py-2 text-sm font-semibold text-fg transition hover:bg-surface disabled:cursor-not-allowed disabled:opacity-60">Cancel import</button> : imported.status === "completed" ? <button type="button" onClick={() => onDelete(imported.id)} disabled={busy} className="rounded-lg px-3 py-2 text-sm font-semibold text-error transition hover:bg-error/10 disabled:cursor-not-allowed disabled:opacity-60">Remove import</button> : null}</div><div className="mt-4 grid grid-cols-3 gap-3 border-t border-border-app pt-4 text-xs"><p><span className="block font-semibold text-fg">{imported.counts.tracksImported.toLocaleString()}</span><span className="text-muted">added</span></p><p><span className="block font-semibold text-fg">{imported.counts.duplicates.toLocaleString()}</span><span className="text-muted">duplicates</span></p><p><span className="block font-semibold text-fg">{imported.counts.skipped.toLocaleString()}</span><span className="text-muted">skipped</span></p></div>{imported.failureCode && <p className="mt-4 text-xs text-error">Import failed: {imported.failureCode.replace(/_/g, " ")}.</p>}</li>;
+  const cancelled = imported.status === "cancelled";
+  const deleteClass = `rounded-lg text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-60 ${confirmingDelete ? "destructive-confirmation bg-error px-3 py-2 text-white" : "px-3 py-2 text-error hover:bg-error/10"}`;
+  const deleteLabel = confirmingDelete ? "Click again to remove" : "Remove import";
+  return <li className="rounded-2xl border border-border-app/80 bg-surface-raised/50 p-4 sm:p-5"><div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start"><div><div className="flex flex-wrap items-center gap-2"><h3 className="text-sm font-semibold text-fg">{sourceLabel(imported.sourceKinds)}</h3><span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${imported.status === "completed" ? "bg-accent/15 text-accent" : imported.status === "failed" ? "bg-error/10 text-error" : "bg-surface text-muted"}`}>{formatStatus(imported.status)}</span></div><p className="mt-1 text-xs text-muted">{formatRange(imported.dateRange)} · Started {new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", year: "numeric" }).format(new Date(imported.createdAt))}</p></div>{active ? <button type="button" onClick={() => onCancel(imported.id)} disabled={busy} className="rounded-lg border border-border-app px-3 py-2 text-sm font-semibold text-fg transition hover:bg-surface disabled:cursor-not-allowed disabled:opacity-60">Cancel import</button> : cancelled ? <button type="button" aria-label={deleteLabel} title={deleteLabel} onClick={() => onDelete(imported.id)} disabled={busy} className={`grid h-9 w-9 place-items-center ${deleteClass}`}><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-4 w-4"><path d="M4 7h16M10 11v6m4-6v6M9 7l1-2h4l1 2m-9 0 1 13h10l1-13" /></svg></button> : imported.status === "completed" ? <button type="button" onClick={() => onDelete(imported.id)} disabled={busy} className={deleteClass}>{deleteLabel}</button> : null}</div>{active && <div className="mt-4 border-t border-border-app pt-4"><div role="progressbar" aria-label="Import progress" aria-valuemin={0} aria-valuemax={100} aria-valuenow={progressFor(imported.status)} className="h-2 overflow-hidden rounded-full bg-surface"><span className="block h-full rounded-full bg-accent transition-[width] duration-500" style={{ width: `${progressFor(imported.status)}%` }} /></div><p className="mt-2 text-xs text-muted">{formatStatus(imported.status)} your listening history…</p></div>}<div className="mt-4 grid grid-cols-3 gap-3 border-t border-border-app pt-4 text-xs"><p><span className="block font-semibold text-fg">{imported.counts.tracksImported.toLocaleString()}</span><span className="text-muted">added</span></p><p><span className="block font-semibold text-fg">{imported.counts.duplicates.toLocaleString()}</span><span className="text-muted">duplicates</span></p><p><span className="block font-semibold text-fg">{imported.counts.skipped.toLocaleString()}</span><span className="text-muted">skipped</span></p></div>{imported.failureCode && <p className="mt-4 text-xs text-error">Import failed: {imported.failureCode.replace(/_/g, " ")}.</p>}</li>;
 }
 
 export default function SettingsPanel({ authedPost }: SettingsPanelProps) {
@@ -46,6 +57,7 @@ export default function SettingsPanel({ authedPost }: SettingsPanelProps) {
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [actionId, setActionId] = useState<string | null>(null);
+  const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
   const [error, setError] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
   const activeImportId = imports.find((imported) => isActiveImport(imported.status))?.id;
@@ -78,6 +90,12 @@ export default function SettingsPanel({ authedPost }: SettingsPanelProps) {
     return () => { active = false; window.clearInterval(intervalId); };
   }, [activeImportId, authedPost, updateImport]);
 
+  useEffect(() => {
+    if (!confirmingDeleteId) return;
+    const timeoutId = window.setTimeout(() => setConfirmingDeleteId(null), 4000);
+    return () => window.clearTimeout(timeoutId);
+  }, [confirmingDeleteId]);
+
   async function upload(files: FileList | null) {
     if (!files?.length) return;
     setUploading(true);
@@ -108,7 +126,8 @@ export default function SettingsPanel({ authedPost }: SettingsPanelProps) {
   }
 
   async function remove(importId: string) {
-    if (!window.confirm("Remove this import and any listening history that only came from it?")) return;
+    if (confirmingDeleteId !== importId) return setConfirmingDeleteId(importId);
+    setConfirmingDeleteId(null);
     setActionId(importId);
     setError("");
     const response = await authedPost("/api/imports/spotify-history/delete", { importId });
@@ -121,5 +140,5 @@ export default function SettingsPanel({ authedPost }: SettingsPanelProps) {
   }
 
   const importing = uploading || Boolean(activeImportId);
-  return <div className="space-y-6"><section className="rounded-2xl border border-border-app/80 bg-surface/95 p-5 shadow-xl shadow-black/20 sm:p-6"><div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between"><div><h2 className="text-lg font-semibold text-fg">Import Spotify history</h2><p className="mt-2 max-w-xl text-sm leading-6 text-muted">Select the music files from your export — StreamingHistory_music_*.json or Streaming_History_Audio_*.json — or upload the original Spotify ZIP and we take just the music files from it. Overlapping plays are safely skipped.</p></div><a href="https://support.spotify.com/article/understanding-your-data/" target="_blank" rel="noreferrer" className="shrink-0 text-sm font-semibold text-accent hover:underline">How to request your data</a></div><div className="mt-6 rounded-xl border border-dashed border-border-app bg-surface-raised/60 p-5"><input ref={inputRef} id="spotify-history-files" type="file" accept=".json,.zip,application/json,application/zip" multiple onChange={(event) => void upload(event.target.files)} disabled={importing} className="sr-only" /><label htmlFor="spotify-history-files" className={`inline-flex cursor-pointer items-center rounded-lg bg-accent px-4 py-2.5 text-sm font-bold text-bg transition hover:brightness-110 ${importing ? "pointer-events-none opacity-60" : ""}`}>{uploading ? "Uploading…" : activeImportId ? "Import in progress" : "Choose Spotify export"}</label><p className="mt-3 text-xs leading-5 text-muted">Podcast, audiobook and everything else in the export is ignored. Raw export files are processed for this import and are not kept as part of your listening library.</p></div>{error && <p role="alert" className="mt-4 rounded-xl border border-error/30 bg-error/10 px-4 py-3 text-sm text-error">{error}</p>}</section><section className="rounded-2xl border border-border-app/80 bg-surface/95 p-5 shadow-xl shadow-black/20 sm:p-6"><div className="flex items-center justify-between gap-4"><div><h2 className="text-lg font-semibold text-fg">Import history</h2><p className="mt-1 text-sm text-muted">Completed imports can be removed without touching plays from another source.</p></div></div>{loading ? <div className="mt-5 h-28 animate-pulse rounded-xl bg-surface-raised" /> : imports.length ? <ol aria-live="polite" className="mt-5 space-y-3">{imports.map((imported) => <ImportRow key={imported.id} imported={imported} onCancel={cancel} onDelete={remove} busy={actionId === imported.id} />)}</ol> : <p className="py-10 text-center text-sm text-muted">No Spotify history imports yet.</p>}</section></div>;
+  return <div className="space-y-6"><section className="rounded-2xl border border-border-app/80 bg-surface/95 p-5 shadow-xl shadow-black/20 sm:p-6"><div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between"><div><h2 className="text-lg font-semibold text-fg">Import Spotify history</h2><p className="mt-2 max-w-xl text-sm leading-6 text-muted">Select the music files from your export — StreamingHistory_music_*.json or Streaming_History_Audio_*.json — or upload the original Spotify ZIP and we take just the music files from it. Overlapping plays are safely skipped.</p></div><a href="https://support.spotify.com/article/understanding-your-data/" target="_blank" rel="noreferrer" className="shrink-0 text-sm font-semibold text-accent hover:underline">How to request your data</a></div><div className="mt-6 rounded-xl border border-dashed border-border-app bg-surface-raised/60 p-5"><input ref={inputRef} id="spotify-history-files" type="file" accept=".json,.zip,application/json,application/zip" multiple onChange={(event) => void upload(event.target.files)} disabled={importing} className="sr-only" /><label htmlFor="spotify-history-files" className={`inline-flex cursor-pointer items-center rounded-lg bg-accent px-4 py-2.5 text-sm font-bold text-bg transition hover:brightness-110 ${importing ? "pointer-events-none opacity-60" : ""}`}>{uploading ? "Uploading…" : activeImportId ? "Import in progress" : "Choose Spotify export"}</label><p className="mt-3 text-xs leading-5 text-muted">Podcast, audiobook and everything else in the export is ignored. Raw export files are processed for this import and are not kept as part of your listening library.</p></div>{error && <p role="alert" className="mt-4 rounded-xl border border-error/30 bg-error/10 px-4 py-3 text-sm text-error">{error}</p>}</section><section className="rounded-2xl border border-border-app/80 bg-surface/95 p-5 shadow-xl shadow-black/20 sm:p-6"><div className="flex items-center justify-between gap-4"><div><h2 className="text-lg font-semibold text-fg">Import history</h2><p className="mt-1 text-sm text-muted">Completed imports can be removed without touching plays from another source.</p></div></div>{loading ? <div className="mt-5 h-28 animate-pulse rounded-xl bg-surface-raised" /> : imports.length ? <ol aria-live="polite" className="mt-5 space-y-3">{imports.map((imported) => <ImportRow key={imported.id} imported={imported} onCancel={cancel} onDelete={remove} busy={actionId === imported.id} confirmingDelete={confirmingDeleteId === imported.id} />)}</ol> : <p className="py-10 text-center text-sm text-muted">No Spotify history imports yet.</p>}</section></div>;
 }
