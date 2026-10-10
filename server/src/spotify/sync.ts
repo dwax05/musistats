@@ -49,6 +49,12 @@ async function syncConnectedUser(db: Db, user: SpotifyUser, suppliedAccessToken?
       updateOne: {
         filter: { userId: user._id.toString(), trackId: track.id, playedAt: new Date(track.playedAt) },
         update: {
+          $set: {
+            durationMs: track.durationMs ?? null,
+            artists: track.artists,
+            imageUrl: track.imageUrl,
+            externalUrl: track.externalUrl,
+          },
           $setOnInsert: {
             userId: user._id.toString(),
             trackId: track.id,
@@ -57,6 +63,7 @@ async function syncConnectedUser(db: Db, user: SpotifyUser, suppliedAccessToken?
             imageUrl: track.imageUrl,
             externalUrl: track.externalUrl,
             playedAt: new Date(track.playedAt),
+            durationMs: track.durationMs ?? null,
           },
         },
         upsert: true,

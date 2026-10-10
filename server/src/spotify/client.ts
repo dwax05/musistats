@@ -19,6 +19,7 @@ export type TrackSummary = {
   artists: string[];
   imageUrl: string | null;
   externalUrl: string;
+  durationMs: number | null;
 };
 
 export type RecentTrack = TrackSummary & { playedAt: string };
@@ -87,12 +88,16 @@ function parseTrack(value: unknown): TrackSummary | null {
   const artists = Array.isArray(track.artists)
     ? track.artists.map((artist) => stringValue(optionalRecord(artist)?.name)).filter(Boolean)
     : [];
+  const durationMs = typeof track.duration_ms === "number" && Number.isFinite(track.duration_ms)
+    ? Math.max(0, Number(track.duration_ms))
+    : null;
   return {
     id,
     name,
     artists,
     imageUrl: firstImage(album?.images),
     externalUrl: externalUrl(track.external_urls),
+    durationMs,
   };
 }
 
