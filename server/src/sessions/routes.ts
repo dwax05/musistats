@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import type { Express } from "express";
 import type { Db } from "mongodb";
-import { isTimeRange, rangeStart } from "../analytics/range";
+import { isAnalyticsRange, rangeBounds } from "../analytics/range";
 import { authPayload, requireAuth } from "../auth/routes";
 
 const SESSION_GAP_MS = 45 * 60 * 1000;
@@ -168,12 +168,13 @@ export function buildSessions(userId: string, plays: Iterable<StoredPlay>) {
 
 export function registerSessionRoutes(app: Express, db: Db) {
   app.post("/api/sessions", requireAuth, async (req, res) => {
-    if (!isTimeRange(req.body?.range)) return res.status(400).json({ error: "invalid_range" });
+    if (!isAnalyticsRange(req.body?.range)) return res.status(400).json({ error: "invalid_range" });
 
     const { userId } = authPayload(req);
     const now = new Date();
-    const start = rangeStart(req.body.range, now);
-    const filter = start ? { userId, playedAt: { $gte: start } } : { userId };
+    const bounds = rangeBounds(req.body.range, now, req.body?.startDate, req.body?.endDate);
+    if (!bounds) return res.status(400).json({ error: "invalid_range" });
+    const filter = bounds.start || bounds.end ? { userId, playedAt: { ...(bounds.start ? { $gte: bounds.start } : {}), ...(bounds.end ? { $lt: bounds.end } : {}) } } : { userId };
 
     try {
       const cursor = db.collection<StoredPlay>("RecentPlays").find(filter).sort({ playedAt: 1 });

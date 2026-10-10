@@ -62,6 +62,7 @@ async function syncConnectedUser(db: Db, user: SpotifyUser, suppliedAccessToken?
             artists: track.artists,
             imageUrl: track.imageUrl,
             externalUrl: track.externalUrl,
+            albumName: track.albumName,
             playedAt: new Date(track.playedAt),
             durationMs: track.durationMs,
             artistIds: track.artistIds,

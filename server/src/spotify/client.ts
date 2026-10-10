@@ -35,6 +35,7 @@ export type RecentTrack = TrackSummary & {
   playedAt: string;
   durationMs: number;
   artistIds: string[];
+  albumName: string | null;
 };
 export type SpotifyProfile = { id: string; displayName: string; avatarUrl: string | null };
 export type SpotifyTokens = { accessToken: string; refreshToken?: string };
@@ -135,6 +136,7 @@ function parseTrack(value: unknown): Omit<RecentTrack, "playedAt"> & { album: Al
     externalUrl: externalUrl(track.external_urls),
     durationMs,
     artistIds,
+    albumName: album?.name ?? null,
     album,
   };
 }
@@ -247,8 +249,8 @@ export async function getRecentTracks(accessToken: string, after?: number): Prom
     const track = parseTrack(item.track);
     const playedAt = stringValue(item.played_at);
     if (!track || !playedAt) return [];
-    const { album: _album, ...recentTrack } = track;
-    return [{ ...recentTrack, playedAt }];
+    const { album, ...recentTrack } = track;
+    return [{ ...recentTrack, albumName: album?.name ?? null, playedAt }];
   });
 }
 

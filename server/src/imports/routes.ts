@@ -21,6 +21,7 @@ type StoredImportPlay = {
   name: string;
   artists: string[];
   imageUrl: null;
+  albumName?: string | null;
   playedAt: Date;
   durationMs: number;
   sourceImportIds: string[];
@@ -204,6 +205,7 @@ export function registerImportRoutes(app: Express, db: Db) {
               name: play.trackName,
               artists: [play.artistName],
               imageUrl: null,
+              albumName: play.albumName,
               playedAt: new Date(play.endedAt),
               durationMs: play.durationMs,
               hasLiveSyncSource: false,
