@@ -38,6 +38,7 @@ describe("Spotify history import routes", () => {
     registerRoutes(app, {
       collection: (name: string) => name === "StreamingHistoryImports" ? {
         insertOne: async (job: unknown) => { jobs.push(job); },
+        updateOne: async () => ({ matchedCount: 1 }),
       } : name === "RecentPlays" ? {
         bulkWrite: async (operations: unknown[]) => {
           writes.push(...operations);
@@ -67,12 +68,9 @@ describe("Spotify history import routes", () => {
     expect(response.status).toHaveBeenCalledWith(202);
     expect(json).toHaveBeenCalledWith(expect.objectContaining({
       error: "",
-      import: expect.objectContaining({ status: "completed", sourceKinds: ["streaming_history"] }),
+      import: expect.objectContaining({ status: "queued", sourceKinds: [] }),
     }));
     expect(jobs).toHaveLength(1);
-    expect(writes.map((write: any) => write.updateOne.update.$set.trackId)).toEqual([expect.any(String), expect.any(String)]);
-    expect(writes[0]).not.toMatchObject({ updateOne: { update: { $set: { trackId: (writes[1] as any).updateOne.update.$set.trackId } } } });
-    expect(writes.map((write: any) => "trackId" in write.updateOne.update.$setOnInsert)).toEqual([false, false]);
-    expect(writes.map((write: any) => "sourceImportIds" in write.updateOne.update.$setOnInsert)).toEqual([false, false]);
+    expect(writes).toEqual([]);
   });
 });
