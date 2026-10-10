@@ -27,11 +27,19 @@ function formatDuration(minutes: number | null) {
   return hours ? `${hours}h ${minutes % 60}m` : `${minutes}m`;
 }
 
-function StatCard({ label, value, fullWidth = false }: { label: string; value: string | number; fullWidth?: boolean }) {
+function StatCard({ label, value, fullWidth = false, imageUrl, imageAlt, round = false }: { label: string; value: string | number; fullWidth?: boolean; imageUrl?: string | null; imageAlt?: string; round?: boolean }) {
   return <div className={`min-h-44 rounded-2xl border border-border-app/80 bg-surface/95 shadow-xl shadow-black/20 ${fullWidth ? "lg:col-span-2" : ""}`} style={{ padding: "2rem" }}>
     <dt className="text-base font-semibold text-fg">{label}</dt>
-    <dd className="mt-7 truncate text-3xl font-bold tracking-[-0.03em] text-fg" title={String(value)}>{value}</dd>
+    <dd className="mt-7 flex items-center justify-between gap-4 text-3xl font-bold tracking-[-0.03em] text-fg"><span className="truncate" title={String(value)}>{value}</span>{imageAlt && <Artwork src={imageUrl ?? null} alt={imageAlt} round={round} />}</dd>
   </div>;
+}
+
+function ActivityChart({ title, values, emptyMessage }: { title: string; values?: number[]; emptyMessage: string }) {
+  const highest = Math.max(...(values ?? []), 0);
+  return <section className="rounded-2xl border border-border-app/80 bg-surface/95 shadow-xl shadow-black/20" style={{ padding: "2rem" }}>
+    <h2 className="text-lg font-semibold text-fg">{title}</h2>
+    {highest === 0 ? <p className="grid h-40 place-items-center text-sm text-muted">{emptyMessage}</p> : <><div role="img" aria-label={`${title} by hour`} className="mt-6 flex h-40 items-end gap-1 border-b border-border-app">{values?.map((value, hour) => <span key={hour} className="min-w-0 flex-1 rounded-t-sm bg-accent/70" style={{ height: `${Math.max(4, value / highest * 100)}%` }} />)}</div><div className="mt-3 flex justify-between text-xs text-muted"><span>12am</span><span>6am</span><span>Noon</span><span>6pm</span><span>Now</span></div></>}
+  </section>;
 }
 
 function RankedTracks({ tracks }: { tracks: Track[] }) {
@@ -78,6 +86,13 @@ export default function Dashboard({ initialData, demoUser }: { initialData?: Das
   const selected = data?.top[range];
   const last24Hours = data?.last24Hours ?? summarizeLast24Hours(data?.recent ?? []);
   const contentTitle = page === "songs" ? "Top songs" : page === "artists" ? "Top artists" : "Top albums";
+  const stats = [
+    { label: "Songs listened in the last 24 hours", value: last24Hours.songs },
+    { label: "Time listened in the last 24 hours", value: formatDuration(last24Hours.minutes) },
+    { label: "Artists listened in the last 24 hours", value: last24Hours.artists },
+    { label: "Most listened artist", value: last24Hours.topArtist?.name ?? "—", imageUrl: last24Hours.topArtist?.imageUrl, imageAlt: last24Hours.topArtist?.name, round: true },
+    { label: "Most listened song", value: last24Hours.topTrack?.name ?? "—", imageUrl: last24Hours.topTrack?.imageUrl, imageAlt: last24Hours.topTrack?.name },
+  ];
 
   return <main className="mx-auto min-h-screen w-full max-w-7xl px-5 pb-16 pt-6 sm:px-8 lg:px-10">
     <header className="mb-7 flex flex-wrap items-center justify-between gap-5">
@@ -91,6 +106,6 @@ export default function Dashboard({ initialData, demoUser }: { initialData?: Das
 
     <section className="mb-8 flex flex-col justify-between gap-5 sm:flex-row sm:items-end"><div><p className="mb-2 text-xs font-semibold uppercase tracking-[0.2em] text-accent">Your listening</p><h1 className="text-3xl font-bold tracking-[-0.04em] text-fg sm:text-4xl">{page === "dashboard" ? `Welcome back, ${activeUser?.displayName}` : contentTitle}</h1><p className="mt-2 text-sm text-muted">{page === "dashboard" ? "Your last 24 hours" : data?.updatedAt ? `Updated ${new Date(data.updatedAt).toLocaleString()}` : "Your Spotify snapshot"}</p></div>{page !== "dashboard" && <SegmentedControl ariaLabel="Stats time range" options={(Object.keys(RANGE_LABELS) as TimeRange[]).map((value) => ({ value, label: RANGE_LABELS[value] }))} value={range} onChange={setRange} />}</section>
 
-    {error ? <div role="alert" className="rounded-2xl border border-error/30 bg-error/10 px-5 py-4 text-sm text-error">{error}</div> : !data ? <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3" aria-label="Loading your stats">{[0, 1, 2, 3, 4].map((item) => <div key={item} className="h-40 animate-pulse rounded-2xl border border-border-app bg-surface" />)}</div> : <AnimatePresence mode="wait"><motion.div key={`${page}-${range}`} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.16 }}>{page === "dashboard" ? <dl className="grid gap-6 lg:grid-cols-2">{[["Songs listened in the last 24 hours", last24Hours.songs], ["Time listened in the last 24 hours", formatDuration(last24Hours.minutes)], ["Artists listened in the last 24 hours", last24Hours.artists], ["Most listened artist", last24Hours.topArtist ?? "—"], ["Most listened song", last24Hours.topTrack ?? "—"]].map(([label, value], index) => <StatCard key={label} label={String(label)} value={value} fullWidth={index === 0} />)}</dl> : <section className="rounded-2xl border border-border-app/80 bg-surface/95 p-5 shadow-xl shadow-black/20 sm:p-6"><div className="mb-5 flex items-center justify-between"><h2 className="text-lg font-semibold text-fg">{contentTitle}</h2><span className="text-xs text-muted">{RANGE_LABELS[range]}</span></div>{page === "songs" && <RankedTracks tracks={selected?.tracks ?? []} />}{page === "artists" && <RankedArtists artists={selected?.artists ?? []} />}{page === "albums" && <RankedAlbums albums={selected?.albums ?? []} />}</section>}</motion.div></AnimatePresence>}
+    {error ? <div role="alert" className="rounded-2xl border border-error/30 bg-error/10 px-5 py-4 text-sm text-error">{error}</div> : !data ? <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3" aria-label="Loading your stats">{[0, 1, 2, 3, 4].map((item) => <div key={item} className="h-40 animate-pulse rounded-2xl border border-border-app bg-surface" />)}</div> : <AnimatePresence mode="wait"><motion.div key={`${page}-${range}`} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.16 }}>{page === "dashboard" ? <><dl className="grid gap-6 lg:grid-cols-2">{stats.map((stat, index) => <StatCard key={stat.label} {...stat} fullWidth={index === 0} />)}</dl><div className="mt-6 grid gap-6 lg:grid-cols-2"><ActivityChart title="Time listened over the last 24 hours" values={last24Hours.minutesByHour} emptyMessage="Hourly listening time is not available yet." /><ActivityChart title="Listening distribution over the last 24 hours" values={last24Hours.playsByHour} emptyMessage="No listening activity in the last 24 hours." /></div></> : <section className="rounded-2xl border border-border-app/80 bg-surface/95 p-5 shadow-xl shadow-black/20 sm:p-6"><div className="mb-5 flex items-center justify-between"><h2 className="text-lg font-semibold text-fg">{contentTitle}</h2><span className="text-xs text-muted">{RANGE_LABELS[range]}</span></div>{page === "songs" && <RankedTracks tracks={selected?.tracks ?? []} />}{page === "artists" && <RankedArtists artists={selected?.artists ?? []} />}{page === "albums" && <RankedAlbums albums={selected?.albums ?? []} />}</section>}</motion.div></AnimatePresence>}
   </main>;
 }

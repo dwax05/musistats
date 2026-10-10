@@ -52,8 +52,10 @@ export const DEMO_DASHBOARD: DashboardData = {
     songs: 24,
     minutes: 81,
     artists: 12,
-    topArtist: "Solstice FM",
-    topTrack: "Slow Motion",
+    topArtist: { name: "Solstice FM", imageUrl: artists[0].imageUrl },
+    topTrack: { name: "Slow Motion", imageUrl: tracks[0].imageUrl },
+    minutesByHour: [0, 0, 0, 0, 0, 0, 4, 9, 7, 3, 11, 6, 2, 8, 5, 10, 4, 3, 5, 2, 1, 1, 0, 0],
+    playsByHour: [0, 0, 0, 0, 0, 0, 1, 2, 2, 1, 3, 2, 1, 2, 2, 3, 1, 1, 2, 1, 0, 0, 0, 0],
   },
   recent: tracks.map((track, index) => ({
     ...track,

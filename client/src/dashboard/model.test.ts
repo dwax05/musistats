@@ -24,8 +24,9 @@ describe("dashboard response validation", () => {
       songs: 2,
       minutes: null,
       artists: 2,
-      topArtist: "Artist A",
-      topTrack: "Song A",
+      topArtist: { name: "Artist A", imageUrl: null },
+      topTrack: { name: "Song A", imageUrl: null },
     });
+    expect(summarizeLast24Hours(recent, now).playsByHour?.reduce((total, plays) => total + plays, 0)).toBe(2);
   });
 });

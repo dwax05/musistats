@@ -27,12 +27,19 @@ export type Album = {
 
 export type RecentTrack = Track & { playedAt: string };
 
+export type ListeningHighlight = {
+  name: string;
+  imageUrl: string | null;
+};
+
 export type TodayStats = {
   songs: number;
   minutes: number | null;
   artists: number;
-  topArtist: string | null;
-  topTrack: string | null;
+  topArtist: ListeningHighlight | null;
+  topTrack: ListeningHighlight | null;
+  minutesByHour?: number[];
+  playsByHour?: number[];
 };
 
 export type DashboardData = ApiResponse & {
@@ -57,8 +64,18 @@ function isTodayStats(value: unknown): value is TodayStats {
     && typeof value.songs === "number"
     && (typeof value.minutes === "number" || value.minutes === null)
     && typeof value.artists === "number"
-    && (typeof value.topArtist === "string" || value.topArtist === null)
-    && (typeof value.topTrack === "string" || value.topTrack === null);
+    && (isListeningHighlight(value.topArtist) || value.topArtist === null)
+    && (isListeningHighlight(value.topTrack) || value.topTrack === null)
+    && (value.minutesByHour === undefined || isHourlySeries(value.minutesByHour))
+    && (value.playsByHour === undefined || isHourlySeries(value.playsByHour));
+}
+
+function isListeningHighlight(value: unknown): value is ListeningHighlight {
+  return isRecord(value) && typeof value.name === "string" && (typeof value.imageUrl === "string" || value.imageUrl === null);
+}
+
+function isHourlySeries(value: unknown): value is number[] {
+  return Array.isArray(value) && value.length === 24 && value.every((item) => typeof item === "number" && Number.isFinite(item) && item >= 0);
 }
 
 export function isDashboardData(value: ApiResponse): value is DashboardData {
@@ -76,19 +93,29 @@ export function summarizeLast24Hours(recent: RecentTrack[], now = Date.now()): T
   const plays = recent.filter((track) => new Date(track.playedAt).getTime() >= cutoff);
   const artists = new Map<string, number>();
   const tracks = new Map<string, number>();
+  const artistImages = new Map<string, string | null>();
+  const trackImages = new Map<string, string | null>();
+  const playsByHour = Array.from({ length: 24 }, () => 0);
 
   for (const track of plays) {
     tracks.set(track.name, (tracks.get(track.name) ?? 0) + 1);
-    for (const artist of track.artists) artists.set(artist, (artists.get(artist) ?? 0) + 1);
+    trackImages.set(track.name, track.imageUrl);
+    playsByHour[new Date(track.playedAt).getHours()] += 1;
+    for (const artist of track.artists) {
+      artists.set(artist, (artists.get(artist) ?? 0) + 1);
+      artistImages.set(artist, track.imageUrl);
+    }
   }
 
   const mostPlayed = (counts: Map<string, number>) => [...counts].sort(([, a], [, b]) => b - a)[0]?.[0] ?? null;
+  const highlight = (name: string | null, images: Map<string, string | null>): ListeningHighlight | null => name ? { name, imageUrl: images.get(name) ?? null } : null;
 
   return {
     songs: plays.length,
     minutes: null,
     artists: artists.size,
-    topArtist: mostPlayed(artists),
-    topTrack: mostPlayed(tracks),
+    topArtist: highlight(mostPlayed(artists), artistImages),
+    topTrack: highlight(mostPlayed(tracks), trackImages),
+    playsByHour,
   };
 }
