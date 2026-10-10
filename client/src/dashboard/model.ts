@@ -32,6 +32,19 @@ export type ListeningHighlight = {
   imageUrl: string | null;
 };
 
+export type ListeningSession = {
+  id: string;
+  startedAt: string;
+  endedAt: string;
+  minutes: number | null;
+  songs: number;
+  artists: number;
+  topArtist: ListeningHighlight | null;
+  tracks: RecentTrack[];
+};
+
+export type SessionsData = ApiResponse & { sessions: ListeningSession[] };
+
 export type TodayStats = {
   songs: number;
   minutes: number | null;
@@ -86,6 +99,18 @@ export function isDashboardData(value: ApiResponse): value is DashboardData {
     return isRecord(group) && Array.isArray(group.artists) && Array.isArray(group.tracks)
       && (group.albums === undefined || Array.isArray(group.albums));
   });
+}
+
+export function isSessionsData(value: ApiResponse): value is SessionsData {
+  return value.error === "" && Array.isArray(value.sessions) && value.sessions.every((session) => isRecord(session)
+    && typeof session.id === "string"
+    && typeof session.startedAt === "string"
+    && typeof session.endedAt === "string"
+    && (session.minutes === null || typeof session.minutes === "number" && Number.isFinite(session.minutes) && session.minutes >= 0)
+    && typeof session.songs === "number" && Number.isInteger(session.songs) && session.songs >= 0
+    && typeof session.artists === "number" && Number.isInteger(session.artists) && session.artists >= 0
+    && (isListeningHighlight(session.topArtist) || session.topArtist === null)
+    && Array.isArray(session.tracks));
 }
 
 export function summarizeLast24Hours(recent: RecentTrack[], now = Date.now()): TodayStats {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isDashboardData, summarizeLast24Hours } from "./model";
+import { isDashboardData, isSessionsData, summarizeLast24Hours } from "./model";
 
 describe("dashboard response validation", () => {
   it("accepts the dashboard shape and rejects incomplete data", () => {
@@ -28,5 +28,22 @@ describe("dashboard response validation", () => {
       topTrack: { name: "Song A", imageUrl: null },
     });
     expect(summarizeLast24Hours(recent, now).playsByHour?.reduce((total, plays) => total + plays, 0)).toBe(2);
+  });
+
+  it("accepts sessions returned by the sessions endpoint", () => {
+    expect(isSessionsData({
+      error: "",
+      sessions: [{
+        id: "session-1",
+        startedAt: "2026-10-10T18:00:00.000Z",
+        endedAt: "2026-10-10T19:00:00.000Z",
+        minutes: 60,
+        songs: 12,
+        artists: 4,
+        topArtist: { name: "Artist A", imageUrl: null },
+        tracks: [],
+      }],
+    })).toBe(true);
+    expect(isSessionsData({ error: "", sessions: [{ id: "session-1" }] })).toBe(false);
   });
 });

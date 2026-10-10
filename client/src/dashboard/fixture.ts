@@ -1,5 +1,5 @@
 import type { User } from "../auth/AuthProvider";
-import type { Album, Artist, DashboardData, Track } from "./model";
+import type { Album, Artist, DashboardData, ListeningSession, Track } from "./model";
 
 function artwork(letter: string, color: string) {
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" fill="${color}"/><circle cx="72" cy="28" r="32" fill="#fff" opacity=".12"/><text x="50" y="64" text-anchor="middle" font-family="system-ui" font-size="42" font-weight="700" fill="#fff">${letter}</text></svg>`;
@@ -62,3 +62,36 @@ export const DEMO_DASHBOARD: DashboardData = {
     playedAt: new Date(Date.now() - index * 32 * 60 * 1000).toISOString(),
   })),
 };
+
+const demoNow = Date.now();
+const sessionOneTracks = [tracks[0], tracks[1], tracks[0], tracks[2], tracks[0]].map((track, index) => ({
+  ...track,
+  playedAt: new Date(demoNow - (90 - index * 18) * 60 * 1000).toISOString(),
+}));
+const sessionTwoTracks = [tracks[3], tracks[4], tracks[3]].map((track, index) => ({
+  ...track,
+  playedAt: new Date(demoNow - (26 * 60 + 48 - index * 16) * 60 * 1000).toISOString(),
+}));
+
+export const DEMO_SESSIONS: ListeningSession[] = [
+  {
+    id: "session-1",
+    startedAt: sessionOneTracks[0].playedAt,
+    endedAt: new Date(demoNow - 10 * 60 * 1000).toISOString(),
+    minutes: 78,
+    songs: sessionOneTracks.length,
+    artists: 3,
+    topArtist: { name: "Solstice FM", imageUrl: artists[0].imageUrl },
+    tracks: sessionOneTracks,
+  },
+  {
+    id: "session-2",
+    startedAt: sessionTwoTracks[0].playedAt,
+    endedAt: new Date(demoNow - (26 * 60 + 12) * 60 * 1000).toISOString(),
+    minutes: 42,
+    songs: sessionTwoTracks.length,
+    artists: 2,
+    topArtist: { name: "Soft Static", imageUrl: artists[3].imageUrl },
+    tracks: sessionTwoTracks,
+  },
+];
