@@ -66,6 +66,7 @@ MongoDB collections: `Users`, `RecentPlays` (one document per play: `userId`, `n
 ## Assistant
 
 - Providers: OpenAI, ChatGPT account, Claude, Gemini, Hugging Face, Ollama, LM Studio. They share one set of tool definitions and one `runTool` in `server/src/assistant/routes.ts`; a change to a tool affects every provider.
+- The shared system prompt ends with a taste note (`tasteNote`): the listener's top artists of the last 6 months and their cached Last.fm genres, for tone only. It reads `ArtistNameGenreCache` and never waits on Last.fm.
 - Tool schemas use required string fields with empty-string defaults so they stay valid for every provider's schema rules.
 - `query_plays` lets the model write an aggregation. `scopedPipeline` fixes the collection, prepends the user's `$match`, appends a row limit, and rejects any stage outside its allowlist or any cross-collection, write, or JavaScript operator. Treat it as a security boundary: extend the allowlist deliberately and add a refusal test for anything new.
 - Sign in with ChatGPT (`server/src/assistant/chatgpt.ts`) works only when MusiStats runs locally, because OpenAI's self-serve flow accepts only a `127.0.0.1` callback. On that route requests must stream, `max_output_tokens` is rejected, tools must be grouped in a namespace, and output arrives as `response.output_item.done` events.

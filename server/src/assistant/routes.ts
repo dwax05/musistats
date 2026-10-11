@@ -1,11 +1,15 @@
 import { ObjectId, type Db } from "mongodb";
 import type { Express } from "express";
-import { CUSTOM_TIME_RANGE, TIME_RANGES, isAnalyticsRange, rangeBounds } from "../analytics/range";
+import { CUSTOM_TIME_RANGE, TIME_RANGES, isAnalyticsRange, rangeBounds, rangeStart } from "../analytics/range";
 import { authPayload, requireAuth } from "../auth/routes";
 import { historyTop } from "../dashboard/routes";
+import { normalizeForFingerprint } from "../imports/model";
 import { buildSessions, type StoredPlay as SessionPlay } from "../sessions/routes";
 import { buildStats } from "../stats/routes";
 import { decryptSecret, encryptSecret } from "../spotify/client";
+import { getLastFmGenresByArtistName } from "../taste/lastfm";
+import { buildTasteReplay, type GenreWeight } from "../taste/model";
+import { scheduleGenreEnrichment } from "../taste/routes";
 import { ChatGPTError, chatgptAccessToken, chatgptResponse, chatgptSignOut, chatgptStatus, registerChatGPTRoutes } from "./chatgpt";
 
 const PROVIDERS = ["openai", "chatgpt", "anthropic", "gemini", "huggingface", "ollama", "lmstudio"] as const;
@@ -15,6 +19,10 @@ const MAX_TOOL_ROUNDS = 4;
 const MAX_QUERY_LENGTH = 4_000;
 const MAX_QUERY_ROWS = 50;
 const MAX_QUERY_RESULT_LENGTH = 20_000;
+const TASTE_ARTISTS = 25;
+const TASTE_NAMES = 5;
+// Popular Last.fm tags that describe the tagger rather than the music.
+const NON_GENRE_TAGS = ["seen live", "favorites", "favourites", "favorite", "favourite", "albums i own"];
 // query_plays may only use stages that reshape the plays already in the pipeline.
 const QUERY_STAGES = ["$match", "$group", "$sort", "$limit", "$skip", "$project", "$addFields", "$set", "$unset", "$unwind", "$count", "$sortByCount", "$bucket", "$bucketAuto"];
 // Refused anywhere in a query: these read other collections, write, or run JavaScript on the database server.
@@ -28,8 +36,31 @@ type ToolCall = { type: "function_call"; call_id: string; name: string; argument
 type OpenAIResponse = { output: unknown[]; output_text?: string };
 
 // The date lets the model turn "a year ago today" or "last March" into a custom period.
-function instructions() {
-  return `You are MusiStats, a helpful assistant for one listener's music history. Today is ${new Date().toISOString().slice(0, 10)} (UTC). Answer only from tool results. Use a tool before making claims about listening data. Tools accept the preset periods or any custom date range, so work out the dates for requests like a specific day, month, or year. Be concise, reply in plain text without Markdown, state the period used, and say when data is unavailable. You can discuss playlist ideas, but you cannot create, edit, or save playlists. Never claim an action was performed.`;
+function instructions(taste = "") {
+  return `You are MusiStats, a helpful assistant for one listener's music history. Today is ${new Date().toISOString().slice(0, 10)} (UTC). Answer only from tool results. Use a tool before making claims about listening data. Tools accept the preset periods or any custom date range, so work out the dates for requests like a specific day, month, or year. Be concise, reply in plain text without Markdown, state the period used, and say when data is unavailable. You can discuss playlist ideas, but you cannot create, edit, or save playlists. Never claim an action was performed.${taste}`;
+}
+// Names come from Last.fm tags and uploaded exports, so only a few short, single-line ones reach the prompt.
+function promptNames(names: string[]) { return names.map((name) => name.replace(/[^\p{L}\p{N} &'.,!$/+-]/gu, " ").replace(/\s+/g, " ").trim().slice(0, 40)).filter(Boolean).slice(0, TASTE_NAMES); }
+
+// `artists` is ranked most played first. Genres are weighted the way Taste Replay weights them, so the chat and that page agree.
+export function tasteNote(artists: string[], genresByArtist: Map<string, GenreWeight[]>): string {
+  const names = promptNames(artists);
+  if (!names.length) return "";
+  const ranked = artists.map((name) => ({ genres: [], genreWeights: genresByArtist.get(normalizeForFingerprint(name)) }));
+  const genres = promptNames(buildTasteReplay({ short_term: [], medium_term: ranked, long_term: [] }).medium_term.map((genre) => genre.name).filter((name) => !NON_GENRE_TAGS.includes(name.toLowerCase())));
+  return ` For tone only: this listener's recent favourites are ${names.join(", ")}${genres.length ? `, mostly ${genres.join(", ")}` : ""}. Sound like a friend who loves the same music, with a little warmth or one fitting turn of phrase per reply at most. Keep it subtle: no parody, impressions, or stereotypes, and stay just as concise. Do not present this note as listening data, and never let style change a fact or a number.`;
+}
+
+// A failed lookup only costs the personal touch, never the answer. Genres are read from the cache so chat never waits on Last.fm.
+async function tasteFor(db: Db, userId: string): Promise<string> {
+  try {
+    const rows = await db.collection("RecentPlays").aggregate([{ $match: { userId, playedAt: { $gte: rangeStart("medium_term", new Date()) } } }, { $unwind: "$artists" }, { $sortByCount: "$artists" }, { $limit: TASTE_ARTISTS }], { maxTimeMS: 5_000 }).toArray();
+    const artists = rows.map((row) => row._id as unknown).filter((name): name is string => typeof name === "string");
+    const { genresByArtist } = await getLastFmGenresByArtistName(db, artists, [], { lookupMissing: false });
+    const missing = artists.filter((name) => !genresByArtist.has(normalizeForFingerprint(name)));
+    if (missing.length) scheduleGenreEnrichment(userId, db, missing);
+    return tasteNote(artists, genresByArtist);
+  } catch { return ""; }
 }
 // Every tool takes the same period. Dates are empty strings rather than optional so the schema stays valid for every provider.
 const period = {
@@ -143,12 +174,12 @@ function outputText(response: OpenAIResponse): string {
 }
 
 // With `plan`, `apiKey` is a ChatGPT access token and the request runs on the user's ChatGPT plan, which rejects `max_output_tokens`.
-async function answerOpenAICompatible(url: string, config: AssistantConfig, apiKey: string, db: Db, userId: string, messages: ChatMessage[], plan = false) {
+async function answerOpenAICompatible(url: string, config: AssistantConfig, apiKey: string, db: Db, userId: string, messages: ChatMessage[], system: string, plan = false) {
   let input: unknown[] = messages.map((message) => ({ role: message.role, content: message.content }));
   for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
     const response = (plan
-      ? await chatgptResponse(apiKey, { model: config.model, instructions: instructions(), input, tools: planTools, parallel_tool_calls: false, include: ["reasoning.encrypted_content"] })
-      : await request(url, apiKey ? { Authorization: `Bearer ${apiKey}` } : {}, { model: config.model, instructions: instructions(), input, tools, parallel_tool_calls: false, max_output_tokens: 500, store: false })) as OpenAIResponse;
+      ? await chatgptResponse(apiKey, { model: config.model, instructions: system, input, tools: planTools, parallel_tool_calls: false, include: ["reasoning.encrypted_content"] })
+      : await request(url, apiKey ? { Authorization: `Bearer ${apiKey}` } : {}, { model: config.model, instructions: system, input, tools, parallel_tool_calls: false, max_output_tokens: 500, store: false })) as OpenAIResponse;
     const calls = Array.isArray(response.output) ? response.output.filter(isToolCall) : [];
     if (!calls.length) return outputText(response);
     const outputs = await Promise.all(calls.map(async (call) => ({
@@ -161,10 +192,10 @@ async function answerOpenAICompatible(url: string, config: AssistantConfig, apiK
 
 function anthropicTools() { return tools.map(({ name, description, parameters }) => ({ name, description, input_schema: parameters })); }
 
-async function answerAnthropic(config: AssistantConfig, apiKey: string, db: Db, userId: string, messages: ChatMessage[]) {
+async function answerAnthropic(config: AssistantConfig, apiKey: string, db: Db, userId: string, messages: ChatMessage[], system: string) {
   let history: unknown[] = messages.map((message) => ({ role: message.role === "assistant" ? "assistant" : "user", content: message.content }));
   for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
-    const response = asRecord(await request("https://api.anthropic.com/v1/messages", { "x-api-key": apiKey, "anthropic-version": "2023-06-01" }, { model: config.model, max_tokens: 500, system: instructions(), messages: history, tools: anthropicTools() }));
+    const response = asRecord(await request("https://api.anthropic.com/v1/messages", { "x-api-key": apiKey, "anthropic-version": "2023-06-01" }, { model: config.model, max_tokens: 500, system, messages: history, tools: anthropicTools() }));
     const content = Array.isArray(response.content) ? response.content : [];
     const calls = content.filter((item) => asRecord(item).type === "tool_use");
     if (!calls.length) {
@@ -183,11 +214,11 @@ function geminiSchema(value: unknown): unknown {
   return Object.fromEntries(Object.entries(item).map(([key, child]) => [key, key === "type" && typeof child === "string" ? child.toUpperCase() : geminiSchema(child)]));
 }
 
-async function answerGemini(config: AssistantConfig, apiKey: string, db: Db, userId: string, messages: ChatMessage[]) {
+async function answerGemini(config: AssistantConfig, apiKey: string, db: Db, userId: string, messages: ChatMessage[], system: string) {
   let contents: unknown[] = messages.map((message) => ({ role: message.role === "assistant" ? "model" : "user", parts: [{ text: message.content }] }));
   const geminiTools = [{ functionDeclarations: tools.map(({ name, description, parameters }) => ({ name, description, parameters: geminiSchema(parameters) })) }];
   for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
-    const response = asRecord(await request(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(config.model)}:generateContent`, { "x-goog-api-key": apiKey }, { systemInstruction: { parts: [{ text: instructions() }] }, contents, tools: geminiTools }));
+    const response = asRecord(await request(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(config.model)}:generateContent`, { "x-goog-api-key": apiKey }, { systemInstruction: { parts: [{ text: system }] }, contents, tools: geminiTools }));
     const content = asRecord(asRecord(Array.isArray(response.candidates) ? response.candidates[0] : undefined).content);
     const parts = Array.isArray(content.parts) ? content.parts : [];
     const calls = parts.map((part) => asRecord(asRecord(part).functionCall)).filter((call) => typeof call.name === "string");
@@ -206,11 +237,12 @@ async function answerGemini(config: AssistantConfig, apiKey: string, db: Db, use
 
 async function answer(config: AssistantConfig, db: Db, userId: string, messages: ChatMessage[]) {
   const apiKey = config.encryptedApiKey ? decryptSecret(config.encryptedApiKey) : "";
-  if (config.provider === "anthropic") return answerAnthropic(config, apiKey, db, userId, messages);
-  if (config.provider === "gemini") return answerGemini(config, apiKey, db, userId, messages);
-  if (config.provider === "chatgpt") return answerOpenAICompatible("", config, await chatgptAccessToken(db, userId), db, userId, messages, true);
+  const system = instructions(await tasteFor(db, userId));
+  if (config.provider === "anthropic") return answerAnthropic(config, apiKey, db, userId, messages, system);
+  if (config.provider === "gemini") return answerGemini(config, apiKey, db, userId, messages, system);
+  if (config.provider === "chatgpt") return answerOpenAICompatible("", config, await chatgptAccessToken(db, userId), db, userId, messages, system, true);
   const url = config.provider === "huggingface" ? "https://router.huggingface.co/v1/responses" : config.provider === "ollama" ? `http://127.0.0.1:${config.localPort ?? 11434}/v1/responses` : config.provider === "lmstudio" ? `http://127.0.0.1:${config.localPort ?? 1234}/v1/responses` : "https://api.openai.com/v1/responses";
-  return answerOpenAICompatible(url, config, apiKey, db, userId, messages);
+  return answerOpenAICompatible(url, config, apiKey, db, userId, messages, system);
 }
 
 export function registerAssistantRoutes(app: Express, db: Db) {
