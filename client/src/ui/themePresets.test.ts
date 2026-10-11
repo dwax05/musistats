@@ -2,6 +2,10 @@ import { describe, expect, it } from "vitest";
 import { DEFAULT_THEME_ID, THEME_GROUPS, THEME_PRESETS, isThemeId, resolveThemeId } from "./themePresets";
 
 describe("theme presets", () => {
+  it("defaults to Spotify", () => {
+    expect(DEFAULT_THEME_ID).toBe("spotify");
+  });
+
   it("provides the 15 palettes in five groups", () => {
     expect(THEME_GROUPS).toHaveLength(5);
     expect(THEME_PRESETS).toHaveLength(15);

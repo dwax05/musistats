@@ -44,7 +44,7 @@ export const THEME_GROUPS = [
 export type ThemeId = (typeof THEME_GROUPS)[number]["themes"][number]["id"];
 type ThemeOption = { id: ThemeId; name: string };
 
-export const DEFAULT_THEME_ID: ThemeId = "ucf-knights";
+export const DEFAULT_THEME_ID: ThemeId = "spotify";
 export const THEME_PRESETS = THEME_GROUPS.reduce<ThemeOption[]>((presets, group) => {
   presets.push(...group.themes);
   return presets;

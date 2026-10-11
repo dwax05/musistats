@@ -106,7 +106,7 @@ export default function ThemeEditor({ authedPost, demo = false }: ThemeEditorPro
     const next = entriesFromVariables(computedThemeVariables());
     setEntries(next);
     setDraftValues({});
-    setStatus("Reset to UCF Knights");
+    setStatus("Reset to Spotify");
   }
 
   async function saveTheme() {
