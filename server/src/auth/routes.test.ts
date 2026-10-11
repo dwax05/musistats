@@ -2,16 +2,17 @@ import express from "express";
 import { ObjectId } from "mongodb";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { SpotifyRateLimitError, encryptSpotifyToken, exchangeSpotifyCode, getSpotifyProfile, spotifyBlockedUntil, syncSpotifyUser } = vi.hoisted(() => ({
+const { SpotifyRateLimitError, encryptSpotifyToken, exchangeSpotifyCode, getSpotifyProfile, spotifyRateLimitUntil, syncSpotifyUser } = vi.hoisted(() => ({
   SpotifyRateLimitError: class extends Error {},
-  spotifyBlockedUntil: vi.fn(() => 0),
+  spotifyRateLimitUntil: vi.fn().mockResolvedValue(null),
   encryptSpotifyToken: vi.fn(() => "encrypted-token"),
   exchangeSpotifyCode: vi.fn(),
   getSpotifyProfile: vi.fn(),
   syncSpotifyUser: vi.fn(),
 }));
 
-vi.mock("../spotify/client", () => ({ SpotifyRateLimitError, encryptSpotifyToken, exchangeSpotifyCode, getSpotifyProfile, spotifyBlockedUntil }));
+vi.mock("../spotify/client", () => ({ encryptSpotifyToken, exchangeSpotifyCode, getSpotifyProfile }));
+vi.mock("../spotify/rate-limit", () => ({ SpotifyRateLimitError, spotifyRateLimitUntil }));
 vi.mock("../spotify/sync", () => ({ syncSpotifyUser }));
 
 import { registerAuthRoutes } from "./routes";
@@ -49,15 +50,15 @@ describe("Spotify OAuth callback", () => {
     expect(syncSpotifyUser).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ _id: user._id }), "spotify-access");
   });
 
-  it("does not send a sign-in to Spotify while the app is rate limited", () => {
-    spotifyBlockedUntil.mockReturnValueOnce(Date.now() + 60_000);
+  it("does not send a sign-in to Spotify while the app is rate limited", async () => {
+    spotifyRateLimitUntil.mockResolvedValueOnce(new Date(Date.now() + 60_000));
     const app = express();
     registerAuthRoutes(app, { collection: () => ({}) } as never);
     const route = app.router.stack.find((layer) => layer.route?.path === "/api/auth/spotify")?.route;
     if (!route) throw new Error("Spotify sign-in route was not registered");
     const res = { cookie: vi.fn(), redirect: vi.fn() };
 
-    route.stack[0].handle({} as never, res as never, vi.fn());
+    await route.stack[0].handle({} as never, res as never, vi.fn());
 
     expect(res.redirect).toHaveBeenCalledWith("/?auth_error=rate_limited");
     expect(res.cookie).not.toHaveBeenCalled();

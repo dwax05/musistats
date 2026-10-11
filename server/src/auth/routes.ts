@@ -9,13 +9,12 @@ import {
   type TokenPayload,
 } from "./tokens";
 import {
-  SpotifyRateLimitError,
   encryptSpotifyToken,
   exchangeSpotifyCode,
   getSpotifyProfile,
   spotifyAuthorizeUrl,
-  spotifyBlockedUntil,
 } from "../spotify/client";
+import { spotifyRateLimitUntil, SpotifyRateLimitError } from "../spotify/rate-limit";
 import { syncSpotifyUser } from "../spotify/sync";
 
 const REFRESH_COOKIE = "refreshToken";
@@ -89,8 +88,8 @@ export function authPayload(req: Request): TokenPayload {
 export function registerAuthRoutes(app: Express, db: Db) {
   const users = db.collection("Users");
 
-  app.get("/api/auth/spotify", (_req, res) => {
-    if (spotifyBlockedUntil()) return res.redirect("/?auth_error=rate_limited");
+  app.get("/api/auth/spotify", async (_req, res) => {
+    if (await spotifyRateLimitUntil(db)) return res.redirect("/?auth_error=rate_limited");
     try {
       const state = randomBytes(24).toString("base64url");
       res.cookie(OAUTH_STATE_COOKIE, state, { ...stateCookieOptions(), maxAge: 10 * 60 * 1000 });
@@ -112,9 +111,9 @@ export function registerAuthRoutes(app: Express, db: Db) {
     }
 
     try {
-      const tokens = await exchangeSpotifyCode(code);
+      const tokens = await exchangeSpotifyCode(db, code);
       if (!tokens.refreshToken) throw new Error("Spotify did not return a refresh token");
-      const profile = await getSpotifyProfile(tokens.accessToken);
+      const profile = await getSpotifyProfile(db, tokens.accessToken);
       const now = new Date();
       const user = await users.findOneAndUpdate(
         { spotifyId: profile.id },
