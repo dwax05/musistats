@@ -6,6 +6,28 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#080b09" />
     <meta name="description" content="Your Spotify listening, measured over time." />
+    <script>
+      try {
+        const savedTheme = localStorage.getItem("musistats-theme:v2");
+        const legacyTheme = localStorage.getItem("musistats-theme");
+        document.documentElement.dataset.theme = savedTheme && /^[a-z0-9-]+$/.test(savedTheme)
+          ? savedTheme
+          : legacyTheme === "light" ? "solarized-light" : "ucf-knights";
+        const cachedCss = localStorage.getItem("cache:theme:v2");
+        if (cachedCss && !/url\s*\(|expression\s*\(|javascript\s*:|@import/i.test(cachedCss)) {
+          const declarations = cachedCss.match(/--[a-z-]+\s*:\s*#[\da-f]{6}\s*;/gi) || [];
+          const allowed = new Set(["--bg", "--surface", "--surface-raised", "--border", "--fg", "--muted", "--accent", "--accent-fg", "--error"]);
+          if (declarations.length === 9 && declarations.every((entry) => allowed.has(entry.split(":")[0].trim()))) {
+            const style = document.createElement("style");
+            style.id = "user-theme";
+            style.textContent = ":root {" + declarations.map((entry) => entry.replace(/;$/, " !important;")).join("") + "}";
+            document.head.appendChild(style);
+          }
+        }
+      } catch {
+        document.documentElement.dataset.theme = "ucf-knights";
+      }
+    </script>
     <title>MusiStats</title>
   </head>
   <body>
