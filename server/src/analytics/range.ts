@@ -32,10 +32,9 @@ function utcMonthsEarlier(now: Date, months: number): Date {
 }
 
 // Capture `now` once per request so all queries and derived values agree.
-export function rangeStart(range: TimeRange, now: Date): Date | null {
+export function rangeStart(range: TimeRange, now: Date): Date {
   if (range === "short_term") return new Date(now.getTime() - 28 * DAY_MS);
-  if (range === "medium_term") return utcMonthsEarlier(now, 6);
-  return null;
+  return utcMonthsEarlier(now, range === "medium_term" ? 6 : 12);
 }
 
 function dateAtUtcMidnight(value: unknown): Date | null {

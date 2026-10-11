@@ -146,7 +146,7 @@ export function registerStatsRoutes(app: Express, db: Db) {
 
     try {
       const first = req.body.range === "long_term"
-        ? await db.collection<StoredPlay>("RecentPlays").findOne({ userId }, { sort: { playedAt: 1 }, projection: { playedAt: 1 } })
+        ? await db.collection<StoredPlay>("RecentPlays").findOne(filter, { sort: { playedAt: 1 }, projection: { playedAt: 1 } })
         : null;
       const cursor = db.collection<StoredPlay>("RecentPlays").find(filter).sort({ playedAt: 1 });
       const stats = new StatsAccumulator(req.body.range, bounds.end ?? now, first?.playedAt ?? null, bounds);

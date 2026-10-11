@@ -44,7 +44,7 @@ cd server && npm run typecheck && npm test
 - Every route is `POST` with a JSON body, except `/api/health` and the OAuth redirects and callbacks.
 - Success is HTTP 200 with `"error": ""`. Failures use a non-2xx status and a stable, non-empty error code, never database details or stack traces.
 - The user ID always comes from the access token (`authPayload(req).userId`). Never accept one from the client, and scope every query to it.
-- Time ranges are `short_term` (28 days), `medium_term` (6 months), `long_term` (all history) or `custom` with `startDate`/`endDate` as `YYYY-MM-DD`. Use `rangeBounds` from `server/src/analytics/range.ts`. All day boundaries are UTC.
+- Time ranges are `short_term` (28 days), `medium_term` (6 months), `long_term` (12 months) or `custom` with `startDate`/`endDate` as `YYYY-MM-DD`. Use `rangeBounds` from `server/src/analytics/range.ts`. All day boundaries are UTC.
 - Secrets at rest (Spotify refresh tokens, provider API keys, ChatGPT tokens) go through `encryptSecret`.
 
 **Client**
