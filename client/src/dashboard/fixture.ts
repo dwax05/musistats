@@ -105,6 +105,7 @@ export const DEMO_SESSIONS: Record<TimeRange, ListeningSession[]> = {
 
 const chartLabels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const demoStats: StatsData = {
+  summary: { songs: 112, artists: 19, listeningMinutes: 2480, listeningMinutesComplete: true },
   topArtistsByPlays: [
     { name: "Solstice FM", value: 42 },
     { name: "Juniper", value: 34 },
@@ -124,8 +125,20 @@ const demoStats: StatsData = {
   artistsListened: { labels: chartLabels, values: [4, 7, 5, 8, 10, 12, 9] },
 };
 
+const previousDemoStats: StatsData = {
+  ...demoStats,
+  summary: { songs: 96, artists: 15, listeningMinutes: 2190, listeningMinutesComplete: true },
+  topArtistsByPlays: [
+    { name: "Juniper", value: 38 },
+    { name: "Solstice FM", value: 35 },
+    { name: "Soft Static", value: 24 },
+    { name: "Afterimage", value: 20 },
+    { name: "North Arcade", value: 16 },
+  ],
+};
+
 export const DEMO_STATS: Record<TimeRange, StatsData> = {
-  short_term: demoStats,
+  short_term: previousDemoStats,
   medium_term: demoStats,
   long_term: demoStats,
 };

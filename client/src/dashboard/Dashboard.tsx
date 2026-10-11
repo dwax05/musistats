@@ -6,8 +6,9 @@ import SettingsPanel from "../settings/SettingsPanel";
 import AssistantPanel from "../assistant/AssistantPanel";
 import { RANGE_LABELS, isDashboardData, isSessionsData, isStatsData, isTasteReplayData, isTopDataResponse, summarizeLast24Hours, type Album, type Artist, type ChartSeries, type DashboardData, type ListeningSession, type RankedMetric, type StatsData, type TasteReplayFrame, type TasteReplaySource, type TasteReplayStatus, type TimeRange, type TopData, type Track } from "./model";
 import TasteReplay from "./TasteReplay";
+import TasteComparison from "./TasteComparison";
 
-type Page = "dashboard" | "assistant" | "stats" | "songs" | "artists" | "albums" | "sessions" | "settings" | "replay";
+type Page = "dashboard" | "assistant" | "stats" | "songs" | "artists" | "albums" | "sessions" | "settings" | "replay" | "compare";
 type SelectedRange = TimeRange | "custom";
 type CustomDates = { startDate: string; endDate: string };
 
@@ -23,6 +24,7 @@ const topPages: { value: Page; label: string }[] = [
   { value: "artists", label: "Artists" },
   { value: "albums", label: "Albums" },
   { value: "replay", label: "Taste replay" },
+  { value: "compare", label: "Taste compare" },
 ];
 
 function SettingsIcon() {
@@ -291,7 +293,7 @@ export default function Dashboard({ initialData, initialSessions, initialStats, 
   }, [authedPost, customDates, initialStats, page, range, rangeKey, selectedStats]);
 
   useEffect(() => {
-    if (page === "replay" || !topPages.some((item) => item.value === page) || range === "custom" && !customDates) return;
+    if ((page !== "songs" && page !== "artists" && page !== "albums") || range === "custom" && !customDates) return;
     let active = true;
     void authedPost("/api/dashboard/top", range === "custom" ? { range, ...customDates! } : { range }).then((response) => {
       if (!active) return;
@@ -384,6 +386,8 @@ export default function Dashboard({ initialData, initialSessions, initialStats, 
     setRange("custom");
     setCustomOpen(false);
   };
+
+  if (page === "compare") return <TasteComparison onBack={() => setPage("dashboard")} demoStats={demoUser ? initialStats : undefined} />;
 
   return <main className="min-h-screen w-full p-3 sm:p-5 lg:flex lg:gap-5">
     <motion.aside layout="position" transition={{ layout: { duration: 0.35, ease: "easeOut" } }} className="relative rounded-3xl border border-border-app bg-surface/95 px-5 py-6 shadow-xl shadow-black/20 sm:px-8 lg:sticky lg:top-5 lg:flex lg:h-[calc(100vh-2.5rem)] lg:w-64 lg:shrink-0 lg:flex-col lg:bg-surface lg:px-6 lg:py-8">

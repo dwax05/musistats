@@ -54,6 +54,7 @@ describe("dashboard response validation", () => {
     expect(isStatsData({
       error: "",
       stats: {
+        summary: { songs: 3, artists: 2, listeningMinutes: 8, listeningMinutesComplete: true },
         topArtistsByPlays: metrics,
         listeningDistribution: series,
         topArtistsByMinutes: metrics,
@@ -62,6 +63,17 @@ describe("dashboard response validation", () => {
       },
     })).toBe(true);
     expect(isStatsData({ error: "", stats: { topArtistsByPlays: metrics } })).toBe(false);
+    expect(isStatsData({
+      error: "",
+      stats: {
+        summary: { songs: -1, artists: 2, listeningMinutes: 8, listeningMinutesComplete: true },
+        topArtistsByPlays: metrics,
+        listeningDistribution: series,
+        topArtistsByMinutes: metrics,
+        songsListened: series,
+        artistsListened: series,
+      },
+    })).toBe(false);
   });
 
   it("accepts imported taste replay frames and rejects invalid interval metadata", () => {
