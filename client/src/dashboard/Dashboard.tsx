@@ -217,7 +217,8 @@ function RankedAlbums({ albums }: { albums: Album[] }) {
 
 export default function Dashboard({ initialData, initialSessions, initialStats, initialTasteReplay, demoUser }: { initialData?: DashboardData; initialSessions?: Record<TimeRange, ListeningSession[]>; initialStats?: Record<TimeRange, StatsData>; initialTasteReplay?: Record<TimeRange, TasteReplayFrame[]>; demoUser?: User }) {
   const { user, authedPost, logout, disconnect } = useAuth();
-  const [page, setPage] = useState<Page>("dashboard");
+  // The ChatGPT sign-in callback returns to /?chatgpt=…, which Settings explains.
+  const [page, setPage] = useState<Page>(() => typeof window !== "undefined" && new URLSearchParams(window.location.search).has("chatgpt") ? "settings" : "dashboard");
   const [range, setRange] = useState<SelectedRange>("medium_term");
   const [customOpen, setCustomOpen] = useState(false);
   const [customDates, setCustomDates] = useState<CustomDates | null>(null);

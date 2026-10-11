@@ -6,9 +6,10 @@ import { historyTop } from "../dashboard/routes";
 import { buildSessions, type StoredPlay as SessionPlay } from "../sessions/routes";
 import { buildStats } from "../stats/routes";
 import { decryptSecret, encryptSecret } from "../spotify/client";
+import { ChatGPTError, chatgptAccessToken, chatgptResponse, chatgptSignOut, chatgptStatus, registerChatGPTRoutes } from "./chatgpt";
 
 const RANGES = ["short_term", "medium_term", "long_term"] as const;
-const PROVIDERS = ["openai", "anthropic", "gemini", "huggingface", "ollama", "lmstudio"] as const;
+const PROVIDERS = ["openai", "chatgpt", "anthropic", "gemini", "huggingface", "ollama", "lmstudio"] as const;
 const MAX_MESSAGES = 10;
 const MAX_MESSAGE_LENGTH = 1_000;
 const MAX_TOOL_ROUNDS = 4;
@@ -17,7 +18,7 @@ type Provider = typeof PROVIDERS[number];
 type ChatMessage = { role: "user" | "assistant"; content: string };
 type AssistantPlay = SessionPlay & { albumName?: string | null };
 type AssistantConfig = { provider: Provider; model: string; encryptedApiKey?: string; localPort?: number };
-type UserWithAssistant = { assistant?: Partial<AssistantConfig> };
+type UserWithAssistant = { assistant?: Partial<AssistantConfig>; chatgpt?: unknown };
 type ToolCall = { type: "function_call"; call_id: string; name: string; arguments: string };
 type OpenAIResponse = { output: unknown[]; output_text?: string };
 
@@ -27,9 +28,14 @@ const tools = [
   { type: "function", name: "get_listening_stats", description: "Get listening time, song count, artist count, and top artists for a listening period.", strict: true, parameters: { type: "object", properties: { range: { type: "string", enum: RANGES, description: "short_term is 4 weeks, medium_term is 6 months, long_term is all available history." } }, required: ["range"], additionalProperties: false } },
   { type: "function", name: "get_listening_sessions", description: "Get the user's longest listening sessions for a listening period.", strict: true, parameters: { type: "object", properties: { range: { type: "string", enum: RANGES, description: "short_term is 4 weeks, medium_term is 6 months, long_term is all available history." } }, required: ["range"], additionalProperties: false } },
 ];
+// ChatGPT plan usage accepts function tools only when they are grouped in a namespace.
+const planTools = [{ type: "namespace", name: "musistats", description: "Read-only lookups over the listener's MusiStats history.", tools }];
+// Mapped from https://developers.openai.com/siwc/token-sharing-open-source/errors-and-recovery
+const CHATGPT_ERRORS: Record<string, string> = { signin_required: "chatgpt_signin_required", http_401: "chatgpt_signin_required", invalid_api_key: "chatgpt_signin_required", subscription_sharing_invalid_user: "chatgpt_signin_required", subscription_sharing_usage_limit_exceeded: "chatgpt_usage_limit", subscription_sharing_user_not_eligible: "chatgpt_not_eligible" };
 
 function isProvider(value: unknown): value is Provider { return typeof value === "string" && PROVIDERS.includes(value as Provider); }
 function isLocalProvider(provider: Provider) { return provider === "ollama" || provider === "lmstudio"; }
+function needsApiKey(provider: Provider) { return !isLocalProvider(provider) && provider !== "chatgpt"; }
 function isLocalPort(value: unknown): value is number { return typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= 65_535; }
 function isRange(value: unknown): value is AssistantRange { return typeof value === "string" && RANGES.includes(value as AssistantRange); }
 function asRecord(value: unknown): Record<string, unknown> { return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {}; }
@@ -47,7 +53,7 @@ export function parseChatMessages(value: unknown): ChatMessage[] | null {
 
 function configFrom(value: unknown): AssistantConfig | null {
   const { provider, model, encryptedApiKey, localPort } = asRecord(value);
-  return isProvider(provider) && typeof model === "string" && model.trim() && model.length <= 160 && (isLocalProvider(provider) || typeof encryptedApiKey === "string" && encryptedApiKey) && (!isLocalProvider(provider) || localPort === undefined || isLocalPort(localPort)) ? { provider, model, ...(typeof encryptedApiKey === "string" && encryptedApiKey ? { encryptedApiKey } : {}), ...(isLocalPort(localPort) ? { localPort } : {}) } : null;
+  return isProvider(provider) && typeof model === "string" && model.trim() && model.length <= 160 && (!needsApiKey(provider) || typeof encryptedApiKey === "string" && encryptedApiKey) && (!isLocalProvider(provider) || localPort === undefined || isLocalPort(localPort)) ? { provider, model, ...(typeof encryptedApiKey === "string" && encryptedApiKey ? { encryptedApiKey } : {}), ...(isLocalPort(localPort) ? { localPort } : {}) } : null;
 }
 
 async function userConfig(db: Db, userId: string): Promise<AssistantConfig | null> {
@@ -91,10 +97,13 @@ function outputText(response: OpenAIResponse): string {
   return "I couldn't produce an answer from your listening data.";
 }
 
-async function answerOpenAICompatible(url: string, config: AssistantConfig, apiKey: string, db: Db, userId: string, messages: ChatMessage[]) {
+// With `plan`, `apiKey` is a ChatGPT access token and the request runs on the user's ChatGPT plan, which rejects `max_output_tokens`.
+async function answerOpenAICompatible(url: string, config: AssistantConfig, apiKey: string, db: Db, userId: string, messages: ChatMessage[], plan = false) {
   let input: unknown[] = messages.map((message) => ({ role: message.role, content: message.content }));
   for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
-    const response = await request(url, apiKey ? { Authorization: `Bearer ${apiKey}` } : {}, { model: config.model, instructions, input, tools, parallel_tool_calls: false, max_output_tokens: 500, store: false }) as OpenAIResponse;
+    const response = (plan
+      ? await chatgptResponse(apiKey, { model: config.model, instructions, input, tools: planTools, parallel_tool_calls: false, include: ["reasoning.encrypted_content"] })
+      : await request(url, apiKey ? { Authorization: `Bearer ${apiKey}` } : {}, { model: config.model, instructions, input, tools, parallel_tool_calls: false, max_output_tokens: 500, store: false })) as OpenAIResponse;
     const calls = Array.isArray(response.output) ? response.output.filter(isToolCall) : [];
     if (!calls.length) return outputText(response);
     const outputs = await Promise.all(calls.map(async (call) => ({
@@ -154,25 +163,34 @@ async function answer(config: AssistantConfig, db: Db, userId: string, messages:
   const apiKey = config.encryptedApiKey ? decryptSecret(config.encryptedApiKey) : "";
   if (config.provider === "anthropic") return answerAnthropic(config, apiKey, db, userId, messages);
   if (config.provider === "gemini") return answerGemini(config, apiKey, db, userId, messages);
+  if (config.provider === "chatgpt") return answerOpenAICompatible("", config, await chatgptAccessToken(db, userId), db, userId, messages, true);
   const url = config.provider === "huggingface" ? "https://router.huggingface.co/v1/responses" : config.provider === "ollama" ? `http://127.0.0.1:${config.localPort ?? 11434}/v1/responses` : config.provider === "lmstudio" ? `http://127.0.0.1:${config.localPort ?? 1234}/v1/responses` : "https://api.openai.com/v1/responses";
   return answerOpenAICompatible(url, config, apiKey, db, userId, messages);
 }
 
 export function registerAssistantRoutes(app: Express, db: Db) {
+  registerChatGPTRoutes(app, db);
+
   app.post("/api/assistant/settings", requireAuth, async (req, res) => {
     const { userId } = authPayload(req);
     if (!ObjectId.isValid(userId)) return res.status(401).json({ error: "unauthorized" });
     if (req.body?.remove === true) {
+      await chatgptSignOut(db, userId);
       await db.collection("Users").updateOne({ _id: new ObjectId(userId) }, { $unset: { assistant: "" } });
       return res.json({ error: "", configured: false });
     }
     if (req.body?.provider === undefined) {
-      const config = await userConfig(db, userId);
-      return res.json({ error: "", configured: Boolean(config), ...(config ? { provider: config.provider, model: config.model, ...(config.localPort ? { localPort: config.localPort } : {}) } : {}) });
+      const user = await db.collection<UserWithAssistant>("Users").findOne({ _id: new ObjectId(userId) });
+      const config = configFrom(user?.assistant);
+      return res.json({ error: "", configured: Boolean(config), chatgpt: chatgptStatus(user?.chatgpt), ...(config ? { provider: config.provider, model: config.model, ...(config.localPort ? { localPort: config.localPort } : {}) } : {}) });
     }
     const { provider, model, apiKey, localPort } = req.body ?? {};
-    if (!isProvider(provider) || typeof model !== "string" || !model.trim() || model.length > 160 || isLocalProvider(provider) && localPort !== undefined && !isLocalPort(localPort) || !isLocalProvider(provider) && (typeof apiKey !== "string" || !apiKey.trim() || apiKey.length > 500)) return res.status(400).json({ error: "invalid_request" });
-    await db.collection("Users").updateOne({ _id: new ObjectId(userId) }, { $set: { assistant: { provider, model: model.trim(), ...(isLocalProvider(provider) && isLocalPort(localPort) ? { localPort } : {}), ...(isLocalProvider(provider) ? {} : { encryptedApiKey: encryptSecret(apiKey.trim()) }), updatedAt: new Date() } } });
+    if (!isProvider(provider) || typeof model !== "string" || !model.trim() || model.length > 160 || isLocalProvider(provider) && localPort !== undefined && !isLocalPort(localPort) || needsApiKey(provider) && (typeof apiKey !== "string" || !apiKey.trim() || apiKey.length > 500)) return res.status(400).json({ error: "invalid_request" });
+    // ChatGPT is chosen by signing in; this route only changes its model. Choosing any other provider signs out of ChatGPT.
+    if (provider === "chatgpt") {
+      if (!chatgptStatus((await db.collection<UserWithAssistant>("Users").findOne({ _id: new ObjectId(userId) }))?.chatgpt).connected) return res.status(400).json({ error: "invalid_request" });
+    } else await chatgptSignOut(db, userId);
+    await db.collection("Users").updateOne({ _id: new ObjectId(userId) }, { $set: { assistant: { provider, model: model.trim(), ...(isLocalProvider(provider) && isLocalPort(localPort) ? { localPort } : {}), ...(needsApiKey(provider) ? { encryptedApiKey: encryptSecret(apiKey.trim()) } : {}), updatedAt: new Date() } } });
     return res.json({ error: "", configured: true, provider, model: model.trim(), ...(isLocalProvider(provider) && isLocalPort(localPort) ? { localPort } : {}) });
   });
 
@@ -183,6 +201,6 @@ export function registerAssistantRoutes(app: Express, db: Db) {
     const config = await userConfig(db, userId);
     if (!config) return res.status(503).json({ error: "assistant_unavailable" });
     try { res.json({ error: "", reply: await answer(config, db, userId, messages) }); }
-    catch (error) { console.error(`Assistant request failed for ${userId}:`, error); res.status(503).json({ error: "assistant_unavailable" }); }
+    catch (error) { console.error(`Assistant request failed for ${userId}:`, error); res.status(503).json({ error: error instanceof ChatGPTError && CHATGPT_ERRORS[error.code] || "assistant_unavailable" }); }
   });
 }
