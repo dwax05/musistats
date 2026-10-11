@@ -1,4 +1,5 @@
 import type { User } from "../auth/AuthProvider";
+import type { CalendarDay } from "../calendar/model";
 import type { Album, Artist, DashboardData, ListeningSession, StatsData, TasteReplayFrame, TimeRange, Track } from "./model";
 
 function artwork(letter: string, color: string) {
@@ -32,6 +33,18 @@ const albums: Album[] = [
 
 function rotated<T>(items: T[], by: number) {
   return [...items.slice(by), ...items.slice(0, by)];
+}
+
+// Deterministic per-day listening so the demo calendar looks the same on every load.
+export function demoCalendar(month: string, today: string): CalendarDay[] {
+  const [year, monthIndex] = month.split("-").map(Number);
+  const daysInMonth = new Date(Date.UTC(year, monthIndex, 0)).getUTCDate();
+  return Array.from({ length: daysInMonth }, (_, index) => {
+    const date = `${month}-${String(index + 1).padStart(2, "0")}`;
+    const seed = (index * 37 + monthIndex * 11) % 23;
+    const plays = seed < 4 ? 0 : seed * 2;
+    return { date, minutes: Math.round(plays * 3.4), plays, topTracks: rotated(tracks, seed % tracks.length).slice(0, 5).map((track, rank) => ({ ...track, plays: Math.max(1, Math.round(plays / (rank + 3))) })) };
+  }).filter((day) => day.plays > 0 && day.date <= today);
 }
 
 export const DEMO_USER: User = {
