@@ -91,7 +91,6 @@ async function syncConnectedUser(db: Db, user: SpotifyUser, suppliedAccessToken?
     const genresByArtist = await getSpotifyGenresByArtistName(
       db,
       artists.map((artist) => artist.name),
-      async () => accessToken,
       artists,
     );
     const top = Object.fromEntries(entries.map(([range, items]) => [

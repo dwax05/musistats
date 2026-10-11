@@ -3,7 +3,6 @@ import {
   SPOTIFY_SCOPES,
   decryptSpotifyToken,
   encryptSpotifyToken,
-  getArtistGenresByName,
   getRecentTracks,
   getTopArtists,
   getTopTracks,
@@ -114,49 +113,17 @@ describe("Spotify OAuth", () => {
     ]);
   });
 
-  it("searches Spotify by artist name and only returns genres for an exact name match", async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        artists: {
-          items: [
-            { id: "other", name: "Example Artist Live", genres: ["live"], images: [], external_urls: {} },
-            { id: "match", name: "Example Artist", genres: ["ambient"], images: [], external_urls: {} },
-          ],
-        },
-      }),
-    });
-    vi.stubGlobal("fetch", fetchMock);
-
-    await expect(getArtistGenresByName("access-token", "Example Artist")).resolves.toEqual(["ambient"]);
-    const requestUrl = new URL(fetchMock.mock.calls[0][0] as string);
-    expect(requestUrl.pathname).toBe("/v1/search");
-    expect(requestUrl.searchParams.get("type")).toBe("artist");
-    expect(requestUrl.searchParams.get("q")).toBe("artist:Example Artist");
-  });
-
-  it("does not use genres from a similarly named artist", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        artists: { items: [{ id: "other", name: "Example Artist Live", genres: ["live"] }] },
-      }),
-    }));
-
-    await expect(getArtistGenresByName("access-token", "Example Artist")).resolves.toEqual([]);
-  });
-
   it("honors Spotify Retry-After values instead of retrying early", async () => {
     vi.useFakeTimers();
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(new Response(null, { status: 429, headers: { "retry-after": "5" } }))
       .mockResolvedValueOnce(new Response(null, { status: 429, headers: { "retry-after": "2" } }))
       .mockResolvedValueOnce(new Response(JSON.stringify({
-        artists: { items: [{ id: "match", name: "Example Artist", genres: ["ambient"] }] },
+        items: [{ id: "match", name: "Example Artist", genres: ["ambient"] }],
       })));
     vi.stubGlobal("fetch", fetchMock);
 
-    const result = getArtistGenresByName("access-token", "Example Artist");
+    const result = getTopArtists("access-token", "short_term");
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     await vi.advanceTimersByTimeAsync(4_999);
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -165,7 +132,7 @@ describe("Spotify OAuth", () => {
     await vi.advanceTimersByTimeAsync(1_999);
     expect(fetchMock).toHaveBeenCalledTimes(2);
     await vi.advanceTimersByTimeAsync(1);
-    await expect(result).resolves.toEqual(["ambient"]);
+    await expect(result).resolves.toEqual([expect.objectContaining({ id: "match", genres: ["ambient"] })]);
     expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 

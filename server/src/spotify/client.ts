@@ -228,23 +228,6 @@ export async function getTopArtists(accessToken: string, range: TimeRange): Prom
   return Array.isArray(data.items) ? data.items.map(parseArtist).filter((item): item is ArtistSummary => item !== null) : [];
 }
 
-export async function getArtistGenresByName(accessToken: string, name: string): Promise<string[]> {
-  const query = new URLSearchParams({
-    q: `artist:${name}`,
-    type: "artist",
-    limit: "10",
-  });
-  const data = await spotifyGet(accessToken, `/search?${query}`);
-  const artists = optionalRecord(data.artists)?.items;
-  if (!Array.isArray(artists)) return [];
-
-  const normalizedName = name.normalize("NFKC").trim().replace(/\s+/g, " ").toLocaleLowerCase();
-  const match = artists
-    .map(parseArtist)
-    .find((artist) => artist?.name.normalize("NFKC").trim().replace(/\s+/g, " ").toLocaleLowerCase() === normalizedName);
-  return match?.genres ?? [];
-}
-
 export async function getTopTracks(accessToken: string, range: TimeRange): Promise<TopTrack[]> {
   const data = await spotifyGet(accessToken, `/me/top/tracks?limit=50&time_range=${range}`);
   return Array.isArray(data.items)
