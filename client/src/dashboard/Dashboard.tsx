@@ -38,6 +38,14 @@ function calendarDate(date: Date) {
   return date.toISOString().slice(0, 10);
 }
 
+function isValidCustomRange(dates: CustomDates | null): dates is CustomDates {
+  if (!dates || dates.startDate > dates.endDate) return false;
+  return [dates.startDate, dates.endDate].every((value) => {
+    const date = new Date(`${value}T00:00:00.000Z`);
+    return !Number.isNaN(date.valueOf()) && calendarDate(date) === value;
+  });
+}
+
 function monthLabel(month: Date) {
   return new Intl.DateTimeFormat(undefined, { month: "long", year: "numeric", timeZone: "UTC" }).format(month);
 }
@@ -363,7 +371,8 @@ export default function Dashboard({ initialData, initialSessions, initialStats, 
   const replayRangeOptions = rangeOptions.filter((option): option is { value: TimeRange; label: string } => option.value === "medium_term" || option.value === "long_term");
   const changeRange = (value: SelectedRange) => {
     if (value === "custom") {
-      setCustomDraft(customDates ?? { startDate: "", endDate: "" });
+      if (customOpen) return setCustomOpen(false);
+      setCustomDraft(isValidCustomRange(customDates) ? customDates : { startDate: today, endDate: today });
       return setCustomOpen(true);
     }
     setCustomOpen(false);
