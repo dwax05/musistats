@@ -5,7 +5,7 @@ export type ArtistWithGenres = ArtistSummary & { genres: string[]; genreWeights?
 export type TasteReplayFrame = { capturedAt: string; genres: GenreWeight[] };
 export type TasteReplay = Record<TimeRange, GenreWeight[]>;
 
-export function buildTasteReplay(artistsByRange: Record<TimeRange, ArtistWithGenres[]>): TasteReplay {
+export function buildTasteReplay(artistsByRange: Record<TimeRange, Pick<ArtistWithGenres, "genres" | "genreWeights">[]>): TasteReplay {
   return Object.fromEntries(
     Object.entries(artistsByRange).map(([range, artists]) => {
       const weights = new Map<string, { name: string; weight: number }>();

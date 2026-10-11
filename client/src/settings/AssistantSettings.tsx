@@ -37,10 +37,13 @@ export default function AssistantSettings({ authedPost }: { authedPost: (url: st
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(signInErrors[signIn] ?? "");
+  // The form values as last saved, so the confirmation disappears as soon as any of them is edited.
+  const [saved, setSaved] = useState("");
   const choice = providers.find((item) => item.value === provider)!;
   const local = provider === "ollama" || provider === "lmstudio";
   const plan = provider === "chatgpt";
   const needsKey = !local && !plan;
+  const isSaved = !saving && saved === [provider, model, localPort, apiKey].join("\n");
   const modelOptions = chatgptModels.some((item) => item.slug === model) || !model ? chatgptModels : [{ slug: model, name: model }, ...chatgptModels];
   useEffect(() => {
     if (signIn) window.history.replaceState({}, "", window.location.pathname);
@@ -76,7 +79,7 @@ export default function AssistantSettings({ authedPost }: { authedPost: (url: st
     const response = await authedPost("/api/assistant/settings", { provider, model, ...(local ? { ...(localPort ? { localPort: port } : {}) } : needsKey ? { apiKey } : {}) });
     setSaving(false);
     if (!isSettings(response) || !response.configured) return setError(plan ? "Your model could not be saved." : "Your provider settings could not be saved. Check the model and API key.");
-    setConfigured(true); setApiKey("");
+    setConfigured(true); setApiKey(""); setSaved([provider, model, localPort, ""].join("\n"));
     // Saving any other provider signs out of ChatGPT on the server.
     if (!plan) setChatgpt((status) => ({ ...status, connected: false }));
   }
@@ -85,7 +88,7 @@ export default function AssistantSettings({ authedPost }: { authedPost: (url: st
     const response = await authedPost("/api/assistant/settings", { remove: true });
     setSaving(false);
     if (!isSettings(response) || response.configured) return setError("Your provider settings could not be removed.");
-    setConfigured(false); setApiKey(""); setChatgpt((status) => ({ ...status, connected: false }));
+    setConfigured(false); setApiKey(""); setSaved(""); setChatgpt((status) => ({ ...status, connected: false }));
   }
   return <section className="rounded-2xl border border-border-app/80 bg-surface/95 p-5 shadow-xl shadow-black/20 sm:p-6">
     <h2 className="text-lg font-semibold text-fg">Listening assistant</h2>
@@ -106,8 +109,9 @@ export default function AssistantSettings({ authedPost }: { authedPost: (url: st
       {local && <label className="grid gap-2 text-sm font-semibold text-fg">Port<input type="number" value={localPort} onChange={(event) => setLocalPort(event.target.value)} disabled={saving} min="1" max="65535" placeholder={provider === "ollama" ? "11434" : "1234"} className={field} /></label>}
       {needsKey && <label className="grid gap-2 text-sm font-semibold text-fg sm:col-span-2">API key<input type="password" value={apiKey} onChange={(event) => setApiKey(event.target.value)} disabled={saving} maxLength={500} required placeholder={`Your ${choice.label} API key`} autoComplete="off" className={field} /></label>}
       <div className="flex items-center gap-3 sm:col-span-2">
-        {(!plan || chatgpt.connected) && <button type="submit" disabled={saving || !model.trim() || needsKey && !apiKey.trim()} className="rounded-lg bg-accent px-4 py-2.5 text-sm font-bold text-accent-fg transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50">{saving ? "Saving…" : plan ? "Save model" : configured ? "Replace provider" : "Save provider"}</button>}
+        {(!plan || chatgpt.connected) && <button type="submit" disabled={saving || isSaved || !model.trim() || needsKey && !apiKey.trim()} className={`rounded-lg bg-accent px-4 py-2.5 text-sm font-bold text-accent-fg transition enabled:hover:brightness-110 ${isSaved ? "" : "disabled:cursor-not-allowed disabled:opacity-50"}`}>{saving ? "Saving…" : isSaved ? "Saved" : plan ? "Save model" : configured ? "Replace provider" : "Save provider"}</button>}
         {configured && <button type="button" onClick={() => void remove()} disabled={saving} className="rounded-lg px-3 py-2.5 text-sm font-semibold text-error transition hover:bg-error/10 disabled:opacity-50">{chatgpt.connected ? "Sign out of ChatGPT" : "Remove provider"}</button>}
+        <p role="status" className="sr-only">{isSaved && `Saved. The assistant now uses ${model}.`}</p>
       </div>
     </form>}
     {welcome && <div role="dialog" aria-modal="true" aria-labelledby="chatgpt-welcome" className="fixed inset-0 z-20 grid place-items-center bg-black/60 p-5"><div className="w-full max-w-sm rounded-2xl border border-border-app bg-surface p-6 text-center shadow-2xl shadow-black/50">
