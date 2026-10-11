@@ -6,6 +6,17 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#080b09" />
     <meta name="description" content="Your Spotify listening, measured over time." />
+    <script>
+      try {
+        const savedTheme = localStorage.getItem("musistats-theme:v2");
+        const legacyTheme = localStorage.getItem("musistats-theme");
+        document.documentElement.dataset.theme = savedTheme && /^[a-z0-9-]+$/.test(savedTheme)
+          ? savedTheme
+          : legacyTheme === "light" ? "solarized-light" : "ucf-knights";
+      } catch {
+        document.documentElement.dataset.theme = "ucf-knights";
+      }
+    </script>
     <title>MusiStats</title>
   </head>
   <body>
