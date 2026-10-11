@@ -17,7 +17,7 @@ A Spotify listening-history tracker built with React, Express, and MongoDB.
    npm run dev
    ```
 
-Open `http://127.0.0.1:5173`. Spotify refresh tokens are encrypted in MongoDB. Recent plays sync hourly, top-item snapshots sync daily, and disconnecting deletes all imported account data.
+Open `http://127.0.0.1:5173`. Spotify refresh tokens and optional assistant provider keys are encrypted in MongoDB. Recent plays sync hourly, top-item snapshots sync daily, and disconnecting deletes all imported account data. In Settings, each user can configure OpenAI, Claude, Google Gemini, Hugging Face, Ollama, or LM Studio; the assistant sends chat questions and requested listening-data summaries only to that selected provider. Ollama and LM Studio run without an API key, but their local API must run on the same machine as MusiStats. It cannot create playlists or modify Spotify.
 
 Use `http://127.0.0.1:5173/?demo=1` to review the populated dashboard during local development without a Spotify login.
 

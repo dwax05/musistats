@@ -260,14 +260,14 @@ function encryptionKey(): Buffer {
   return key;
 }
 
-export function encryptSpotifyToken(token: string): string {
+export function encryptSecret(token: string): string {
   const iv = randomBytes(12);
   const cipher = createCipheriv("aes-256-gcm", encryptionKey(), iv);
   const encrypted = Buffer.concat([cipher.update(token, "utf8"), cipher.final()]);
   return [iv, cipher.getAuthTag(), encrypted].map((part) => part.toString("base64url")).join(".");
 }
 
-export function decryptSpotifyToken(value: string): string {
+export function decryptSecret(value: string): string {
   const parts = value.split(".").map((part) => Buffer.from(part, "base64url"));
   if (parts.length !== 3) throw new Error("Invalid encrypted Spotify token");
   const [iv, tag, encrypted] = parts;
@@ -275,3 +275,6 @@ export function decryptSpotifyToken(value: string): string {
   decipher.setAuthTag(tag);
   return Buffer.concat([decipher.update(encrypted), decipher.final()]).toString("utf8");
 }
+
+export const encryptSpotifyToken = encryptSecret;
+export const decryptSpotifyToken = decryptSecret;
