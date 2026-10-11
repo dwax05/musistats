@@ -3,6 +3,7 @@ import cookieParser from "cookie-parser";
 import { MongoClient } from "mongodb";
 import { loadEnvFile } from "node:process";
 import { registerRoutes } from "./api";
+import { ensureThemeIndexes } from "./theme/routes";
 import { recoverInterruptedImports } from "./imports/jobs";
 import { ensureSpotifyIndexes, startSpotifySync } from "./spotify/sync";
 
@@ -34,6 +35,7 @@ async function main() {
   await client.connect();
   const db = client.db();
   await ensureSpotifyIndexes(db);
+  await ensureThemeIndexes(db);
   await recoverInterruptedImports(db);
   registerRoutes(app, db);
   startSpotifySync(db);
