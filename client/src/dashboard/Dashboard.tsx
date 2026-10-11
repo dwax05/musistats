@@ -225,6 +225,7 @@ export default function Dashboard({ initialData, initialSessions, initialStats, 
   const [compareDates, setCompareDates] = useState<CustomDates | null>(null);
   const [compareDraft, setCompareDraft] = useState<CustomDates>({ startDate: "", endDate: "" });
   const [compareTarget, setCompareTarget] = useState<"previous" | "current">("previous");
+  const [historyRevision, setHistoryRevision] = useState(0);
   const [data, setData] = useState<DashboardData | null>(initialData ?? null);
   const [error, setError] = useState("");
   const [sessions, setSessions] = useState<Record<string, ListeningSession[]>>(initialSessions ?? {});
@@ -279,7 +280,7 @@ export default function Dashboard({ initialData, initialSessions, initialStats, 
       else setData(response);
     });
     return () => { active = false; };
-  }, [authedPost, initialData]);
+  }, [authedPost, historyRevision, initialData]);
 
   useEffect(() => {
     if ((initialSessions !== undefined && range !== "custom") || page !== "sessions" || selectedSessions !== undefined || range === "custom" && !customDates) return;
@@ -290,7 +291,7 @@ export default function Dashboard({ initialData, initialSessions, initialStats, 
       else setSessions((current) => ({ ...current, [rangeKey]: response.sessions }));
     });
     return () => { active = false; };
-  }, [authedPost, customDates, initialSessions, page, range, rangeKey, selectedSessions]);
+  }, [authedPost, customDates, historyRevision, initialSessions, page, range, rangeKey, selectedSessions]);
 
   useEffect(() => {
     if ((initialStats !== undefined && range !== "custom") || page !== "stats" || selectedStats !== undefined || range === "custom" && !customDates) return;
@@ -301,7 +302,7 @@ export default function Dashboard({ initialData, initialSessions, initialStats, 
       else setStats((current) => ({ ...current, [rangeKey]: response.stats }));
     });
     return () => { active = false; };
-  }, [authedPost, customDates, initialStats, page, range, rangeKey, selectedStats]);
+  }, [authedPost, customDates, historyRevision, initialStats, page, range, rangeKey, selectedStats]);
 
   useEffect(() => {
     if ((page !== "songs" && page !== "artists" && page !== "albums") || range === "custom" && !customDates) return;
@@ -315,7 +316,7 @@ export default function Dashboard({ initialData, initialSessions, initialStats, 
       }
     });
     return () => { active = false; };
-  }, [authedPost, customDates, page, range, rangeKey]);
+  }, [authedPost, customDates, historyRevision, page, range, rangeKey]);
 
   useEffect(() => {
     if (initialTasteReplay !== undefined || page !== "replay" || selectedReplay !== undefined) return;
@@ -354,12 +355,21 @@ export default function Dashboard({ initialData, initialSessions, initialStats, 
     };
   }, []);
 
-  const invalidateTasteReplay = useCallback(() => {
+  const refreshImportedHistory = useCallback(() => {
+    setData(null);
+    setError("");
+    setSessions({});
+    setSessionsError(null);
+    setStats({});
+    setStatsError(null);
+    setCustomTop(null);
+    setCustomTopError(null);
     setTasteReplay({});
     setTasteReplayStatus({});
     setTasteReplaySource({});
     setTasteReplayInterval({});
     setTasteReplayError(null);
+    setHistoryRevision((revision) => revision + 1);
   }, []);
 
   async function deleteAccount() {
@@ -437,7 +447,7 @@ export default function Dashboard({ initialData, initialSessions, initialStats, 
         {page === "replay" ? <TimeRangeSelector ariaLabel="Taste replay time range" options={replayRangeOptions} value={replayRange} onChange={setRange} /> : page !== "dashboard" && page !== "settings" && page !== "assistant" && page !== "calendar" && <TimeRangeSelector ariaLabel="Stats time range" options={rangeOptions} value={customOpen ? "custom" : range} onChange={changeRange} calendar={customOpen && <CustomRangeCalendar key={page === "compare" ? compareTarget : undefined} header={page === "compare" && <SegmentedControl ariaLabel="Period to select" options={comparePeriodOptions} value={compareTarget} onChange={setCompareTarget} />} dates={pickingPrevious ? compareDraft : customDraft} initialDate={today} onChange={pickingPrevious ? changePreviousDraft : setCustomDraft} canApply={page !== "compare" || Boolean(compareDraft.endDate && customDraft.endDate)} onCancel={() => setCustomOpen(false)} onApply={applyCustomRange} />} onCalendarDismiss={() => setCustomOpen(false)} />}
       </section>
 
-      {page === "settings" ? <SettingsPanel authedPost={authedPost} onHistoryChanged={invalidateTasteReplay} /> : page === "assistant" ? <AssistantPanel authedPost={authedPost} demo={Boolean(demoUser)} /> : page === "calendar" ? <CalendarPanel authedPost={authedPost} demo={Boolean(demoUser)} /> : page === "compare" ? <TasteComparison range={range} customDates={customDates} previousDates={compareDates} demoStats={demoUser ? initialStats : undefined} /> : page === "replay" ? tasteReplayError?.range === replayRange && selectedReplay === undefined ? <div role="alert" className="rounded-2xl border border-error/30 bg-error/10 px-5 py-4 text-sm text-error">{tasteReplayError.message}</div> : selectedReplay === undefined ? <div className="h-96 animate-pulse rounded-2xl border border-border-app bg-surface" aria-label="Loading your taste replay" /> : <TasteReplay frames={selectedReplay} status={tasteReplayStatus[replayRange]} source={tasteReplaySource[replayRange]} intervalDays={tasteReplayInterval[replayRange]} /> : error ? <div role="alert" className="rounded-2xl border border-error/30 bg-error/10 px-5 py-4 text-sm text-error">{error}</div> : !data ? <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-6" aria-label="Loading your stats">{[0, 1, 2, 3, 4].map((item) => <div key={item} className={`h-40 animate-pulse rounded-2xl border border-border-app bg-surface ${item < 3 ? "lg:col-span-2" : item === 4 ? "md:col-span-2 lg:col-span-3" : "lg:col-span-3"}`} />)}</div> : <AnimatePresence mode="wait"><motion.div key={`${page}-${rangeKey}`} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.16 }}>{page === "dashboard" ? <><dl className="grid gap-6 md:grid-cols-2 lg:grid-cols-6">{summaryStats.map((stat) => <StatCard key={stat.label} {...stat} />)}</dl><div className="mt-6"><ActivityChart title="Listening distribution over the last 24 hours" values={last24Hours.playsByHour} emptyMessage="No listening activity in the last 24 hours." /></div></> : page === "stats" ? statsError?.key === rangeKey && selectedStats === undefined ? <div role="alert" className="rounded-2xl border border-error/30 bg-error/10 px-5 py-4 text-sm text-error">{statsError.message}</div> : selectedStats === undefined ? <div className="grid gap-6 lg:grid-cols-2" aria-label="Loading your stats">{[0, 1, 2, 3, 4, 5, 6].map((item) => <div key={item} className="h-56 animate-pulse rounded-2xl border border-border-app bg-surface" />)}</div> : <StatsPanel stats={selectedStats} /> : page === "sessions" ? sessionsError?.key === rangeKey && selectedSessions === undefined ? <div role="alert" className="rounded-2xl border border-error/30 bg-error/10 px-5 py-4 text-sm text-error">{sessionsError.message}</div> : selectedSessions === undefined ? <div className="space-y-4" aria-label="Loading your listening sessions">{[0, 1].map((item) => <div key={item} className="h-24 animate-pulse rounded-2xl border border-border-app bg-surface" />)}</div> : <SessionList sessions={selectedSessions} /> : customTopError?.key === rangeKey ? <div role="alert" className="rounded-2xl border border-error/30 bg-error/10 px-5 py-4 text-sm text-error">{customTopError.message}</div> : selected === null ? <div className="h-56 animate-pulse rounded-2xl border border-border-app bg-surface" aria-label="Loading your top tracks" /> : <section className="rounded-2xl border border-border-app/80 bg-surface/95 p-5 shadow-xl shadow-black/20 sm:p-6"><div className="mb-5 flex items-center justify-between"><h2 className="text-lg font-semibold text-fg">{contentTitle}</h2><span className="text-xs text-muted">{range === "custom" ? formatCustomRange(customDates!) : RANGE_LABELS[range]}</span></div>{page === "songs" && <RankedTracks tracks={selected?.tracks ?? []} />}{page === "artists" && <RankedArtists artists={selected?.artists ?? []} />}{page === "albums" && <RankedAlbums albums={selected?.albums ?? []} />}</section>}</motion.div></AnimatePresence>}
+      {page === "settings" ? <SettingsPanel authedPost={authedPost} onHistoryChanged={refreshImportedHistory} /> : page === "assistant" ? <AssistantPanel authedPost={authedPost} demo={Boolean(demoUser)} /> : page === "calendar" ? <CalendarPanel authedPost={authedPost} demo={Boolean(demoUser)} /> : page === "compare" ? <TasteComparison range={range} customDates={customDates} previousDates={compareDates} demoStats={demoUser ? initialStats : undefined} /> : page === "replay" ? tasteReplayError?.range === replayRange && selectedReplay === undefined ? <div role="alert" className="rounded-2xl border border-error/30 bg-error/10 px-5 py-4 text-sm text-error">{tasteReplayError.message}</div> : selectedReplay === undefined ? <div className="h-96 animate-pulse rounded-2xl border border-border-app bg-surface" aria-label="Loading your taste replay" /> : <TasteReplay frames={selectedReplay} status={tasteReplayStatus[replayRange]} source={tasteReplaySource[replayRange]} intervalDays={tasteReplayInterval[replayRange]} /> : error ? <div role="alert" className="rounded-2xl border border-error/30 bg-error/10 px-5 py-4 text-sm text-error">{error}</div> : !data ? <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-6" aria-label="Loading your stats">{[0, 1, 2, 3, 4].map((item) => <div key={item} className={`h-40 animate-pulse rounded-2xl border border-border-app bg-surface ${item < 3 ? "lg:col-span-2" : item === 4 ? "md:col-span-2 lg:col-span-3" : "lg:col-span-3"}`} />)}</div> : <AnimatePresence mode="wait"><motion.div key={`${page}-${rangeKey}`} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.16 }}>{page === "dashboard" ? <><dl className="grid gap-6 md:grid-cols-2 lg:grid-cols-6">{summaryStats.map((stat) => <StatCard key={stat.label} {...stat} />)}</dl><div className="mt-6"><ActivityChart title="Listening distribution over the last 24 hours" values={last24Hours.playsByHour} emptyMessage="No listening activity in the last 24 hours." /></div></> : page === "stats" ? statsError?.key === rangeKey && selectedStats === undefined ? <div role="alert" className="rounded-2xl border border-error/30 bg-error/10 px-5 py-4 text-sm text-error">{statsError.message}</div> : selectedStats === undefined ? <div className="grid gap-6 lg:grid-cols-2" aria-label="Loading your stats">{[0, 1, 2, 3, 4, 5, 6].map((item) => <div key={item} className="h-56 animate-pulse rounded-2xl border border-border-app bg-surface" />)}</div> : <StatsPanel stats={selectedStats} /> : page === "sessions" ? sessionsError?.key === rangeKey && selectedSessions === undefined ? <div role="alert" className="rounded-2xl border border-error/30 bg-error/10 px-5 py-4 text-sm text-error">{sessionsError.message}</div> : selectedSessions === undefined ? <div className="space-y-4" aria-label="Loading your listening sessions">{[0, 1].map((item) => <div key={item} className="h-24 animate-pulse rounded-2xl border border-border-app bg-surface" />)}</div> : <SessionList sessions={selectedSessions} /> : customTopError?.key === rangeKey ? <div role="alert" className="rounded-2xl border border-error/30 bg-error/10 px-5 py-4 text-sm text-error">{customTopError.message}</div> : selected === null ? <div className="h-56 animate-pulse rounded-2xl border border-border-app bg-surface" aria-label="Loading your top tracks" /> : <section className="rounded-2xl border border-border-app/80 bg-surface/95 p-5 shadow-xl shadow-black/20 sm:p-6"><div className="mb-5 flex items-center justify-between"><h2 className="text-lg font-semibold text-fg">{contentTitle}</h2><span className="text-xs text-muted">{range === "custom" ? formatCustomRange(customDates!) : RANGE_LABELS[range]}</span></div>{page === "songs" && <RankedTracks tracks={selected?.tracks ?? []} />}{page === "artists" && <RankedArtists artists={selected?.artists ?? []} />}{page === "albums" && <RankedAlbums albums={selected?.albums ?? []} />}</section>}</motion.div></AnimatePresence>}
     </div>
   </main>;
 }
