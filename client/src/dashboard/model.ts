@@ -57,6 +57,12 @@ export type RankedMetric = {
 };
 
 export type StatsData = {
+  summary: {
+    songs: number;
+    artists: number;
+    listeningMinutes: number;
+    listeningMinutesComplete: boolean;
+  };
   topArtistsByPlays: RankedMetric[];
   listeningDistribution: ChartSeries;
   topArtistsByMinutes: RankedMetric[];
@@ -169,7 +175,12 @@ function isTopData(value: unknown): value is TopData {
 export function isStatsData(value: ApiResponse): value is StatsResponse {
   if (value.error !== "" || !isRecord(value.stats)) return false;
   const stats = value.stats;
-  return Array.isArray(stats.topArtistsByPlays)
+  return isRecord(stats.summary)
+    && Number.isInteger(stats.summary.songs) && typeof stats.summary.songs === "number" && stats.summary.songs >= 0
+    && Number.isInteger(stats.summary.artists) && typeof stats.summary.artists === "number" && stats.summary.artists >= 0
+    && Number.isInteger(stats.summary.listeningMinutes) && typeof stats.summary.listeningMinutes === "number" && stats.summary.listeningMinutes >= 0
+    && typeof stats.summary.listeningMinutesComplete === "boolean"
+    && Array.isArray(stats.topArtistsByPlays)
     && stats.topArtistsByPlays.every(isRankedMetric)
     && isChartSeries(stats.listeningDistribution)
     && Array.isArray(stats.topArtistsByMinutes)

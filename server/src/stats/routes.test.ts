@@ -19,6 +19,7 @@ describe("stats aggregation", () => {
 
     expect(stats.topArtistsByPlays).toEqual([{ name: "Lead", value: 2 }, { name: "Guest", value: 1 }]);
     expect(stats.topArtistsByMinutes).toEqual([{ name: "Lead", value: 3 }, { name: "Guest", value: 2 }]);
+    expect(stats.summary).toEqual({ songs: 2, artists: 2, listeningMinutes: 3, listeningMinutesComplete: true });
     for (const series of Object.values(stats).filter((value): value is { labels: string[]; values: number[] } => "labels" in value)) {
       expect(series.labels).toHaveLength(28);
       expect(series.values).toHaveLength(28);
@@ -41,6 +42,7 @@ describe("stats aggregation", () => {
     }], null);
 
     expect(stats.topArtistsByMinutes).toEqual([]);
+    expect(stats.summary).toEqual({ songs: 1, artists: 1, listeningMinutes: 0, listeningMinutesComplete: false });
   });
 
   it("only ranks the portion of a mixed legacy history with known durations", () => {

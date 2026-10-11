@@ -74,6 +74,9 @@ class StatsAccumulator {
   private readonly buckets: Bucket[];
   private readonly tallies: BucketTally[];
   private readonly artists = new Map<string, ArtistTally>();
+  private songs = 0;
+  private listeningDurationMs = 0;
+  private listeningDurationComplete = true;
 
   constructor(range: AnalyticsRange, now: Date, firstPlay: Date | null, bounds?: RangeBounds) {
     this.buckets = buildBuckets(range, now, firstPlay, bounds);
@@ -86,6 +89,9 @@ class StatsAccumulator {
     if (bucketIndex === null) return;
     const tally = this.tallies[bucketIndex]!;
     const durationMs = knownDuration(play);
+    this.songs += 1;
+    if (durationMs === null) this.listeningDurationComplete = false;
+    else this.listeningDurationMs += durationMs;
     tally.durationMs += durationMs ?? 0;
     tally.songs += 1;
     for (const [key, name] of creditedArtists(play)) {
@@ -108,6 +114,12 @@ class StatsAccumulator {
     const series = (values: number[]) => ({ labels, values });
 
     return {
+      summary: {
+        songs: this.songs,
+        artists: this.artists.size,
+        listeningMinutes: Math.round(this.listeningDurationMs / 60000),
+        listeningMinutesComplete: this.listeningDurationComplete,
+      },
       topArtistsByPlays: rank("plays"),
       listeningDistribution: series(this.tallies.map((tally) => Math.round(tally.durationMs / 60000))),
       topArtistsByMinutes: rank("durationMs"),
