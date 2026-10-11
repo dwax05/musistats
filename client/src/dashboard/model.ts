@@ -68,6 +68,18 @@ export type StatsResponse = ApiResponse & { stats: StatsData };
 export type TopData = DashboardData["top"][TimeRange];
 export type TopResponse = ApiResponse & { top: TopData };
 
+export type GenreShare = { name: string; weight: number };
+export type TasteReplayFrame = { capturedAt: string; genres: GenreShare[] };
+export type TasteReplayStatus = "ready" | "no_snapshots" | "no_genre_data" | "provider_not_configured" | "loading_genres" | "genre_lookup_failed";
+export type TasteReplaySource = "imported_history" | "spotify_snapshots";
+export type TasteReplayData = ApiResponse & {
+  range: TimeRange;
+  status: TasteReplayStatus;
+  source: TasteReplaySource;
+  intervalDays: number;
+  frames: TasteReplayFrame[];
+};
+
 export type TodayStats = {
   songs: number;
   minutes: number | null;
@@ -180,6 +192,32 @@ export function isStatsData(value: ApiResponse): value is StatsResponse {
 
 export function isTopDataResponse(value: ApiResponse): value is TopResponse {
   return value.error === "" && isTopData(value.top);
+}
+
+export function isTasteReplayData(value: ApiResponse): value is TasteReplayData {
+  return value.error === ""
+    && (Object.keys(RANGE_LABELS) as TimeRange[]).includes(value.range as TimeRange)
+    && (value.status === "ready"
+      || value.status === "no_snapshots"
+      || value.status === "no_genre_data"
+      || value.status === "provider_not_configured"
+      || value.status === "loading_genres"
+      || value.status === "genre_lookup_failed")
+    && (value.source === "imported_history" || value.source === "spotify_snapshots")
+    && typeof value.intervalDays === "number"
+    && Number.isInteger(value.intervalDays)
+    && value.intervalDays >= 1
+    && Array.isArray(value.frames)
+    && value.frames.every((frame) => isRecord(frame)
+      && typeof frame.capturedAt === "string"
+      && Number.isFinite(Date.parse(frame.capturedAt))
+      && Array.isArray(frame.genres)
+      && frame.genres.every((genre) => isRecord(genre)
+        && typeof genre.name === "string"
+        && typeof genre.weight === "number"
+        && Number.isFinite(genre.weight)
+        && genre.weight >= 0
+        && genre.weight <= 1));
 }
 
 export function summarizeLast24Hours(recent: RecentTrack[], now = Date.now()): TodayStats {

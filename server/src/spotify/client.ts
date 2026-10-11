@@ -9,6 +9,7 @@ export { TIME_RANGES, type TimeRange } from "../analytics/range";
 export type ArtistSummary = {
   id: string;
   name: string;
+  genres?: string[];
   imageUrl: string | null;
   externalUrl: string;
 };
@@ -82,6 +83,12 @@ function externalUrl(value: unknown): string {
   return stringValue(optionalRecord(value)?.spotify);
 }
 
+function genreList(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((genre): genre is string => typeof genre === "string").map((genre) => genre.trim()).filter(Boolean)
+    : [];
+}
+
 function parseArtist(value: unknown): ArtistSummary | null {
   const artist = optionalRecord(value);
   if (!artist) return null;
@@ -91,6 +98,7 @@ function parseArtist(value: unknown): ArtistSummary | null {
   return {
     id,
     name,
+    genres: genreList(artist.genres),
     imageUrl: firstImage(artist.images),
     externalUrl: externalUrl(artist.external_urls),
   };
@@ -144,6 +152,7 @@ function parseTrack(value: unknown): Omit<RecentTrack, "playedAt"> & { album: Al
 async function tokenRequest(body: URLSearchParams): Promise<SpotifyTokens> {
   const response = await fetch(`${ACCOUNTS_URL}/api/token`, {
     method: "POST",
+    signal: AbortSignal.timeout(10_000),
     headers: {
       Authorization: clientAuthorization(),
       "Content-Type": "application/x-www-form-urlencoded",
@@ -159,20 +168,22 @@ async function tokenRequest(body: URLSearchParams): Promise<SpotifyTokens> {
 }
 
 async function spotifyGet(accessToken: string, path: string): Promise<Record<string, unknown>> {
-  for (let attempt = 0; attempt < 2; attempt += 1) {
+  const maxAttempts = 5;
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     const response = await fetch(`${API_URL}${path}`, {
+      signal: AbortSignal.timeout(10_000),
       headers: { Authorization: `Bearer ${accessToken}` },
     });
-    if (response.status === 429 && attempt === 0) {
+    if (response.status === 429 && attempt < maxAttempts - 1) {
       const retryAfter = Number(response.headers.get("retry-after"));
-      const seconds = Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : 1;
+      const seconds = Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : Math.min(2 ** attempt, 30);
       await new Promise((resolve) => setTimeout(resolve, seconds * 1000));
       continue;
     }
     if (!response.ok) throw new Error(`Spotify API request failed (${response.status})`);
     return asRecord(await response.json());
   }
-  throw new Error("Spotify rate limit retry failed");
+  throw new Error(`Spotify API rate limit retry failed after ${maxAttempts} attempts`);
 }
 
 export function spotifyAuthorizeUrl(state: string): string {
@@ -215,6 +226,23 @@ export async function getSpotifyProfile(accessToken: string): Promise<SpotifyPro
 export async function getTopArtists(accessToken: string, range: TimeRange): Promise<ArtistSummary[]> {
   const data = await spotifyGet(accessToken, `/me/top/artists?limit=50&time_range=${range}`);
   return Array.isArray(data.items) ? data.items.map(parseArtist).filter((item): item is ArtistSummary => item !== null) : [];
+}
+
+export async function getArtistGenresByName(accessToken: string, name: string): Promise<string[]> {
+  const query = new URLSearchParams({
+    q: `artist:${name}`,
+    type: "artist",
+    limit: "10",
+  });
+  const data = await spotifyGet(accessToken, `/search?${query}`);
+  const artists = optionalRecord(data.artists)?.items;
+  if (!Array.isArray(artists)) return [];
+
+  const normalizedName = name.normalize("NFKC").trim().replace(/\s+/g, " ").toLocaleLowerCase();
+  const match = artists
+    .map(parseArtist)
+    .find((artist) => artist?.name.normalize("NFKC").trim().replace(/\s+/g, " ").toLocaleLowerCase() === normalizedName);
+  return match?.genres ?? [];
 }
 
 export async function getTopTracks(accessToken: string, range: TimeRange): Promise<TopTrack[]> {

@@ -1,12 +1,13 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { AnimatePresence, LayoutGroup, motion } from "motion/react";
 import { useAuth, type User } from "../auth/AuthProvider";
 import SegmentedControl from "../ui/SegmentedControl";
 import SettingsPanel from "../settings/SettingsPanel";
 import AssistantPanel from "../assistant/AssistantPanel";
-import { RANGE_LABELS, isDashboardData, isSessionsData, isStatsData, isTopDataResponse, summarizeLast24Hours, type Album, type Artist, type ChartSeries, type DashboardData, type ListeningSession, type RankedMetric, type StatsData, type TimeRange, type TopData, type Track } from "./model";
+import { RANGE_LABELS, isDashboardData, isSessionsData, isStatsData, isTasteReplayData, isTopDataResponse, summarizeLast24Hours, type Album, type Artist, type ChartSeries, type DashboardData, type ListeningSession, type RankedMetric, type StatsData, type TasteReplayFrame, type TasteReplaySource, type TasteReplayStatus, type TimeRange, type TopData, type Track } from "./model";
+import TasteReplay from "./TasteReplay";
 
-type Page = "dashboard" | "assistant" | "stats" | "songs" | "artists" | "albums" | "sessions" | "settings";
+type Page = "dashboard" | "assistant" | "stats" | "songs" | "artists" | "albums" | "sessions" | "settings" | "replay";
 type SelectedRange = TimeRange | "custom";
 type CustomDates = { startDate: string; endDate: string };
 
@@ -21,6 +22,7 @@ const topPages: { value: Page; label: string }[] = [
   { value: "songs", label: "Songs" },
   { value: "artists", label: "Artists" },
   { value: "albums", label: "Albums" },
+  { value: "replay", label: "Taste replay" },
 ];
 
 function SettingsIcon() {
@@ -36,8 +38,24 @@ function calendarDate(date: Date) {
   return date.toISOString().slice(0, 10);
 }
 
+function isValidCustomRange(dates: CustomDates | null): dates is CustomDates {
+  if (!dates || dates.startDate > dates.endDate) return false;
+  return [dates.startDate, dates.endDate].every((value) => {
+    const date = new Date(`${value}T00:00:00.000Z`);
+    return !Number.isNaN(date.valueOf()) && calendarDate(date) === value;
+  });
+}
+
 function monthLabel(month: Date) {
   return new Intl.DateTimeFormat(undefined, { month: "long", year: "numeric", timeZone: "UTC" }).format(month);
+}
+
+function formatCustomDate(date: string) {
+  return new Intl.DateTimeFormat("en-US", { month: "short", day: "2-digit", year: "numeric", timeZone: "UTC" }).format(new Date(`${date}T00:00:00.000Z`));
+}
+
+function formatCustomRange({ startDate, endDate }: CustomDates) {
+  return `${formatCustomDate(startDate)} - ${formatCustomDate(endDate)}`;
 }
 
 function CustomRangeCalendar({ dates, initialDate, onChange, onCancel, onApply }: { dates: CustomDates; initialDate: string; onChange: (dates: CustomDates) => void; onCancel: () => void; onApply: () => void }) {
@@ -66,9 +84,24 @@ function CustomRangeCalendar({ dates, initialDate, onChange, onCancel, onApply }
       const inRange = Boolean(dates.startDate && dates.endDate && date > dates.startDate && date < dates.endDate);
       return <div key={date} className={inRange ? "bg-accent/20" : ""}><button type="button" aria-pressed={endpoint} aria-label={new Intl.DateTimeFormat(undefined, { dateStyle: "full", timeZone: "UTC" }).format(new Date(`${date}T00:00:00.000Z`))} onClick={() => choose(date)} className={`mx-auto grid h-9 w-9 place-items-center rounded-lg text-sm transition focus-visible:outline-2 focus-visible:outline-accent ${endpoint ? "bg-accent font-bold text-accent-fg shadow-[0_2px_0_#087c30]" : inRange ? "text-accent" : currentMonth ? "text-fg hover:bg-surface-raised" : "text-muted/50 hover:bg-surface-raised"}`}>{day}</button></div>;
     })}</div>
-    <p className="mt-4 text-center text-xs text-muted">{dates.startDate && dates.endDate ? `${dates.startDate} – ${dates.endDate}` : dates.startDate ? "Select an end date" : "Select a start date"}</p>
+    <p className="mt-4 text-center text-xs text-muted">{dates.startDate && dates.endDate ? formatCustomRange(dates) : dates.startDate ? "Select an end date" : "Select a start date"}</p>
     <div className="mt-4 flex justify-end gap-2"><button type="button" onClick={onCancel} className="rounded-lg px-3 py-2 text-xs font-semibold text-muted hover:text-fg">Cancel</button><button type="button" disabled={!dates.startDate || !dates.endDate} onClick={onApply} className="rounded-lg bg-accent px-3 py-2 text-xs font-semibold text-accent-fg disabled:cursor-not-allowed disabled:opacity-40">Apply</button></div>
   </div>;
+}
+
+function TimeRangeSelector<T extends string>({ ariaLabel, options, value, onChange, calendar, onCalendarDismiss }: { ariaLabel: string; options: readonly { value: T; label: string }[]; value: T; onChange: (value: T) => void; calendar?: ReactNode; onCalendarDismiss?: () => void }) {
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!calendar) return;
+    function closeCalendar(event: PointerEvent) {
+      if (ref.current && event.target instanceof Node && !ref.current.contains(event.target)) onCalendarDismiss?.();
+    }
+    document.addEventListener("pointerdown", closeCalendar);
+    return () => document.removeEventListener("pointerdown", closeCalendar);
+  }, [calendar, onCalendarDismiss]);
+
+  return <div ref={ref} className="relative"><SegmentedControl ariaLabel={ariaLabel} options={options} value={value} onChange={onChange} /><AnimatePresence initial={false}>{calendar && <motion.div initial={{ opacity: 0, y: -8, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -8, scale: 0.98 }} transition={{ duration: 0.16, ease: "easeOut" }} className="absolute right-0 z-10 mt-2 origin-top-right">{calendar}</motion.div>}</AnimatePresence></div>;
 }
 
 function Artwork({ src, alt, round = false }: { src: string | null; alt: string; round?: boolean }) {
@@ -173,7 +206,7 @@ function RankedAlbums({ albums }: { albums: Album[] }) {
   return <ol className="space-y-2">{albums.map((album, index) => <li key={album.id}><a href={album.externalUrl} target="_blank" rel="noreferrer" className="group flex items-center gap-3 rounded-xl p-2 transition hover:bg-surface-raised focus-visible:outline-2 focus-visible:outline-accent"><span className="w-5 text-center text-xs font-semibold text-muted">{index + 1}</span><Artwork src={album.imageUrl} alt={album.name} /><span className="min-w-0"><span className="block truncate text-sm font-semibold text-fg group-hover:text-accent">{album.name}</span><span className="block truncate text-xs text-muted">{album.artists.join(", ")}</span></span></a></li>)}</ol>;
 }
 
-export default function Dashboard({ initialData, initialSessions, initialStats, demoUser }: { initialData?: DashboardData; initialSessions?: Record<TimeRange, ListeningSession[]>; initialStats?: Record<TimeRange, StatsData>; demoUser?: User }) {
+export default function Dashboard({ initialData, initialSessions, initialStats, initialTasteReplay, demoUser }: { initialData?: DashboardData; initialSessions?: Record<TimeRange, ListeningSession[]>; initialStats?: Record<TimeRange, StatsData>; initialTasteReplay?: Record<TimeRange, TasteReplayFrame[]>; demoUser?: User }) {
   const { user, authedPost, logout, disconnect } = useAuth();
   const [page, setPage] = useState<Page>("dashboard");
   const [range, setRange] = useState<SelectedRange>("medium_term");
@@ -189,13 +222,40 @@ export default function Dashboard({ initialData, initialSessions, initialStats, 
   const [statsError, setStatsError] = useState<{ key: string; message: string } | null>(null);
   const [customTop, setCustomTop] = useState<{ key: string; value: TopData } | null>(null);
   const [customTopError, setCustomTopError] = useState<{ key: string; message: string } | null>(null);
+  const [tasteReplay, setTasteReplay] = useState<Partial<Record<TimeRange, TasteReplayFrame[]>>>(initialTasteReplay ?? {});
+  const [tasteReplayStatus, setTasteReplayStatus] = useState<Partial<Record<TimeRange, TasteReplayStatus>>>({});
+  const [tasteReplaySource, setTasteReplaySource] = useState<Partial<Record<TimeRange, TasteReplaySource>>>({});
+  const [tasteReplayInterval, setTasteReplayInterval] = useState<Partial<Record<TimeRange, number>>>({});
+  const [tasteReplayError, setTasteReplayError] = useState<{ range: TimeRange; message: string } | null>(null);
   const [profileOpen, setProfileOpen] = useState(false);
   const profileMenuRef = useRef<HTMLDivElement>(null);
-  const customCalendarRef = useRef<HTMLDivElement>(null);
   const activeUser = demoUser ?? user;
   const rangeKey = range === "custom" && customDates ? `custom:${customDates.startDate}:${customDates.endDate}` : range;
   const selectedSessions = sessions[rangeKey];
   const selectedStats = stats[rangeKey];
+  const replayRange = range === "short_term" || range === "custom" ? "medium_term" : range;
+  const selectedReplay = tasteReplay[replayRange];
+
+  const loadTasteReplay = useCallback(async (isActive: () => boolean) => {
+    try {
+      const response = await authedPost("/api/taste-replay", { range: replayRange });
+      if (!isActive()) return;
+      if (!isTasteReplayData(response)) {
+        setTasteReplayError({ range: replayRange, message: response.error === "offline" ? "MusiStats is temporarily unavailable." : "Your taste replay could not be loaded." });
+        setTasteReplayStatus((current) => ({ ...current, [replayRange]: "genre_lookup_failed" }));
+        return;
+      }
+      setTasteReplay((current) => ({ ...current, [replayRange]: response.frames }));
+      setTasteReplayStatus((current) => ({ ...current, [replayRange]: response.status }));
+      setTasteReplaySource((current) => ({ ...current, [replayRange]: response.source }));
+      setTasteReplayInterval((current) => ({ ...current, [replayRange]: response.intervalDays }));
+    } catch (error) {
+      if (!isActive()) return;
+      console.error("Taste replay request failed.", error);
+      setTasteReplayError({ range: replayRange, message: "Your taste replay could not be loaded." });
+      setTasteReplayStatus((current) => ({ ...current, [replayRange]: "genre_lookup_failed" }));
+    }
+  }, [authedPost, replayRange]);
 
   useEffect(() => {
     if (initialData) return;
@@ -231,7 +291,7 @@ export default function Dashboard({ initialData, initialSessions, initialStats, 
   }, [authedPost, customDates, initialStats, page, range, rangeKey, selectedStats]);
 
   useEffect(() => {
-    if (!topPages.some((item) => item.value === page) || range === "custom" && !customDates) return;
+    if (page === "replay" || !topPages.some((item) => item.value === page) || range === "custom" && !customDates) return;
     let active = true;
     void authedPost("/api/dashboard/top", range === "custom" ? { range, ...customDates! } : { range }).then((response) => {
       if (!active) return;
@@ -245,13 +305,27 @@ export default function Dashboard({ initialData, initialSessions, initialStats, 
   }, [authedPost, customDates, page, range, rangeKey]);
 
   useEffect(() => {
-    function closeCalendar(event: PointerEvent) {
-      const calendar = customCalendarRef.current;
-      if (calendar && event.target instanceof Node && !calendar.contains(event.target)) setCustomOpen(false);
-    }
-    document.addEventListener("pointerdown", closeCalendar);
-    return () => document.removeEventListener("pointerdown", closeCalendar);
-  }, []);
+    if (initialTasteReplay !== undefined || page !== "replay" || selectedReplay !== undefined) return;
+    let active = true;
+    void loadTasteReplay(() => active);
+    return () => { active = false; };
+  }, [initialTasteReplay, loadTasteReplay, page, selectedReplay]);
+
+  useEffect(() => {
+    const status = tasteReplayStatus[replayRange];
+    if (initialTasteReplay !== undefined || page !== "replay" || status !== "loading_genres" && status !== "genre_lookup_failed") return;
+    let active = true;
+    let pending = false;
+    const intervalId = window.setInterval(() => {
+      if (pending) return;
+      pending = true;
+      void loadTasteReplay(() => active).finally(() => { pending = false; });
+    }, status === "loading_genres" ? 5000 : 30_000);
+    return () => {
+      active = false;
+      window.clearInterval(intervalId);
+    };
+  }, [initialTasteReplay, loadTasteReplay, page, replayRange, tasteReplayStatus]);
 
   useEffect(() => {
     function closeProfileMenu(event: PointerEvent) {
@@ -267,6 +341,14 @@ export default function Dashboard({ initialData, initialSessions, initialStats, 
     };
   }, []);
 
+  const invalidateTasteReplay = useCallback(() => {
+    setTasteReplay({});
+    setTasteReplayStatus({});
+    setTasteReplaySource({});
+    setTasteReplayInterval({});
+    setTasteReplayError(null);
+  }, []);
+
   async function deleteAccount() {
     if (!window.confirm("Disconnect Spotify and permanently delete all imported MusiStats data?")) return;
     if (demoUser) return window.location.assign("/");
@@ -276,7 +358,7 @@ export default function Dashboard({ initialData, initialSessions, initialStats, 
 
   const selected = customTop?.key === rangeKey ? customTop.value : null;
   const last24Hours = data?.last24Hours ?? summarizeLast24Hours(data?.recent ?? []);
-  const contentTitle = page === "settings" ? "Settings" : page === "assistant" ? "Ask MusiStats" : page === "stats" ? "All stats" : page === "songs" ? "Top songs" : page === "artists" ? "Top artists" : page === "albums" ? "Top albums" : "Longest listening sessions";
+  const contentTitle = page === "settings" ? "Settings" : page === "assistant" ? "Ask MusiStats" : page === "stats" ? "All stats" : page === "songs" ? "Top songs" : page === "artists" ? "Top artists" : page === "albums" ? "Top albums" : page === "replay" ? "Taste replay" : "Longest listening sessions";
   const summaryStats = [
     { label: "Songs listened to in the last 24 hours", value: last24Hours.songs, className: "lg:col-span-2" },
     { label: "Time listened to in the last 24 hours", value: formatDuration(last24Hours.minutes), className: "lg:col-span-2" },
@@ -285,10 +367,12 @@ export default function Dashboard({ initialData, initialSessions, initialStats, 
     { label: "Most listened to song", value: last24Hours.topTrack?.name ?? "—", imageUrl: last24Hours.topTrack?.imageUrl, imageAlt: last24Hours.topTrack?.name, className: "md:col-span-2 lg:col-span-3" },
   ];
 
-  const rangeOptions: { value: SelectedRange; label: string }[] = [...(Object.keys(RANGE_LABELS) as TimeRange[]).map((value) => ({ value, label: RANGE_LABELS[value] })), { value: "custom", label: "All time" }];
+  const rangeOptions: { value: SelectedRange; label: string }[] = [...(Object.keys(RANGE_LABELS) as TimeRange[]).map((value) => ({ value, label: RANGE_LABELS[value] })), { value: "custom", label: "Custom" }];
+  const replayRangeOptions = rangeOptions.filter((option): option is { value: TimeRange; label: string } => option.value === "medium_term" || option.value === "long_term");
   const changeRange = (value: SelectedRange) => {
     if (value === "custom") {
-      setCustomDraft(customDates ?? { startDate: "", endDate: "" });
+      if (customOpen) return setCustomOpen(false);
+      setCustomDraft(isValidCustomRange(customDates) ? customDates : { startDate: today, endDate: today });
       return setCustomOpen(true);
     }
     setCustomOpen(false);
@@ -314,9 +398,9 @@ export default function Dashboard({ initialData, initialSessions, initialStats, 
     </motion.aside>
 
     <div className="mx-auto w-full max-w-7xl px-2 pb-16 pt-8 sm:px-3 lg:px-8 lg:py-5">
-      <section className="mb-8 flex flex-col justify-between gap-5 sm:flex-row sm:items-end"><div><p className="mb-2 text-xs font-semibold uppercase tracking-[0.2em] text-accent">Your listening</p><h1 className="text-3xl font-bold tracking-[-0.04em] text-fg sm:text-4xl">{page === "dashboard" ? `Welcome back, ${activeUser?.displayName}` : contentTitle}</h1><p className="mt-2 text-sm text-muted">{page === "dashboard" ? "Your last 24 hours" : page === "settings" ? "Manage your listening history" : page === "assistant" ? "Explore your listening history in your own words" : page === "stats" ? "Your listening patterns, at a glance" : page === "sessions" ? "Grouped plays with 45 minutes or less between tracks" : data?.updatedAt ? `Updated ${new Date(data.updatedAt).toLocaleString()}` : "Your Spotify snapshot"}</p></div>{page !== "dashboard" && page !== "settings" && page !== "assistant" && <div ref={customCalendarRef} className="relative"><SegmentedControl ariaLabel="Stats time range" options={rangeOptions} value={range} onChange={changeRange} />{customOpen && <div className="absolute right-0 z-10 mt-2"><CustomRangeCalendar dates={customDraft} initialDate={today} onChange={setCustomDraft} onCancel={() => setCustomOpen(false)} onApply={applyCustomRange} /></div>}</div>}</section>
+      <section className="mb-8 flex flex-col justify-between gap-5 sm:flex-row sm:items-end"><div><p className="mb-2 text-xs font-semibold uppercase tracking-[0.2em] text-accent">Your listening</p><h1 className="text-3xl font-bold tracking-[-0.04em] text-fg sm:text-4xl">{page === "dashboard" ? `Welcome back, ${activeUser?.displayName}` : contentTitle}</h1><p className="mt-2 text-sm text-muted">{page === "dashboard" ? "Your last 24 hours" : page === "settings" ? "Manage your listening history" : page === "assistant" ? "Explore your listening history in your own words" : page === "replay" ? "Animate genre changes from your imported Spotify history" : page === "stats" ? "Your listening patterns, at a glance" : page === "sessions" ? "Grouped plays with 45 minutes or less between tracks" : data?.updatedAt ? `Updated ${new Date(data.updatedAt).toLocaleString()}` : "Your Spotify snapshot"}</p></div>{page === "replay" ? <TimeRangeSelector ariaLabel="Taste replay time range" options={replayRangeOptions} value={replayRange} onChange={setRange} /> : page !== "dashboard" && page !== "settings" && page !== "assistant" && <TimeRangeSelector ariaLabel="Stats time range" options={rangeOptions} value={customOpen ? "custom" : range} onChange={changeRange} calendar={customOpen && <CustomRangeCalendar dates={customDraft} initialDate={today} onChange={setCustomDraft} onCancel={() => setCustomOpen(false)} onApply={applyCustomRange} />} onCalendarDismiss={() => setCustomOpen(false)} />}</section>
 
-      {page === "settings" ? <SettingsPanel authedPost={authedPost} /> : page === "assistant" ? <AssistantPanel authedPost={authedPost} demo={Boolean(demoUser)} /> : error ? <div role="alert" className="rounded-2xl border border-error/30 bg-error/10 px-5 py-4 text-sm text-error">{error}</div> : !data ? <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-6" aria-label="Loading your stats">{[0, 1, 2, 3, 4].map((item) => <div key={item} className={`h-40 animate-pulse rounded-2xl border border-border-app bg-surface ${item < 3 ? "lg:col-span-2" : item === 4 ? "md:col-span-2 lg:col-span-3" : "lg:col-span-3"}`} />)}</div> : <AnimatePresence mode="wait"><motion.div key={`${page}-${rangeKey}`} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.16 }}>{page === "dashboard" ? <><dl className="grid gap-6 md:grid-cols-2 lg:grid-cols-6">{summaryStats.map((stat) => <StatCard key={stat.label} {...stat} />)}</dl><div className="mt-6"><ActivityChart title="Listening distribution over the last 24 hours" values={last24Hours.playsByHour} emptyMessage="No listening activity in the last 24 hours." /></div></> : page === "stats" ? statsError?.key === rangeKey && selectedStats === undefined ? <div role="alert" className="rounded-2xl border border-error/30 bg-error/10 px-5 py-4 text-sm text-error">{statsError.message}</div> : selectedStats === undefined ? <div className="grid gap-6 lg:grid-cols-2" aria-label="Loading your stats">{[0, 1, 2, 3, 4, 5, 6].map((item) => <div key={item} className="h-56 animate-pulse rounded-2xl border border-border-app bg-surface" />)}</div> : <StatsPanel stats={selectedStats} /> : page === "sessions" ? sessionsError?.key === rangeKey && selectedSessions === undefined ? <div role="alert" className="rounded-2xl border border-error/30 bg-error/10 px-5 py-4 text-sm text-error">{sessionsError.message}</div> : selectedSessions === undefined ? <div className="space-y-4" aria-label="Loading your listening sessions">{[0, 1].map((item) => <div key={item} className="h-24 animate-pulse rounded-2xl border border-border-app bg-surface" />)}</div> : <SessionList sessions={selectedSessions} /> : customTopError?.key === rangeKey ? <div role="alert" className="rounded-2xl border border-error/30 bg-error/10 px-5 py-4 text-sm text-error">{customTopError.message}</div> : selected === null ? <div className="h-56 animate-pulse rounded-2xl border border-border-app bg-surface" aria-label="Loading your top tracks" /> : <section className="rounded-2xl border border-border-app/80 bg-surface/95 p-5 shadow-xl shadow-black/20 sm:p-6"><div className="mb-5 flex items-center justify-between"><h2 className="text-lg font-semibold text-fg">{contentTitle}</h2><span className="text-xs text-muted">{range === "custom" ? `${customDates?.startDate}–${customDates?.endDate}` : RANGE_LABELS[range]}</span></div>{page === "songs" && <RankedTracks tracks={selected?.tracks ?? []} />}{page === "artists" && <RankedArtists artists={selected?.artists ?? []} />}{page === "albums" && <RankedAlbums albums={selected?.albums ?? []} />}</section>}</motion.div></AnimatePresence>}
+      {page === "settings" ? <SettingsPanel authedPost={authedPost} onHistoryChanged={invalidateTasteReplay} /> : page === "assistant" ? <AssistantPanel authedPost={authedPost} demo={Boolean(demoUser)} /> : page === "replay" ? tasteReplayError?.range === replayRange && selectedReplay === undefined ? <div role="alert" className="rounded-2xl border border-error/30 bg-error/10 px-5 py-4 text-sm text-error">{tasteReplayError.message}</div> : selectedReplay === undefined ? <div className="h-96 animate-pulse rounded-2xl border border-border-app bg-surface" aria-label="Loading your taste replay" /> : <TasteReplay frames={selectedReplay} status={tasteReplayStatus[replayRange]} source={tasteReplaySource[replayRange]} intervalDays={tasteReplayInterval[replayRange]} /> : error ? <div role="alert" className="rounded-2xl border border-error/30 bg-error/10 px-5 py-4 text-sm text-error">{error}</div> : !data ? <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-6" aria-label="Loading your stats">{[0, 1, 2, 3, 4].map((item) => <div key={item} className={`h-40 animate-pulse rounded-2xl border border-border-app bg-surface ${item < 3 ? "lg:col-span-2" : item === 4 ? "md:col-span-2 lg:col-span-3" : "lg:col-span-3"}`} />)}</div> : <AnimatePresence mode="wait"><motion.div key={`${page}-${rangeKey}`} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.16 }}>{page === "dashboard" ? <><dl className="grid gap-6 md:grid-cols-2 lg:grid-cols-6">{summaryStats.map((stat) => <StatCard key={stat.label} {...stat} />)}</dl><div className="mt-6"><ActivityChart title="Listening distribution over the last 24 hours" values={last24Hours.playsByHour} emptyMessage="No listening activity in the last 24 hours." /></div></> : page === "stats" ? statsError?.key === rangeKey && selectedStats === undefined ? <div role="alert" className="rounded-2xl border border-error/30 bg-error/10 px-5 py-4 text-sm text-error">{statsError.message}</div> : selectedStats === undefined ? <div className="grid gap-6 lg:grid-cols-2" aria-label="Loading your stats">{[0, 1, 2, 3, 4, 5, 6].map((item) => <div key={item} className="h-56 animate-pulse rounded-2xl border border-border-app bg-surface" />)}</div> : <StatsPanel stats={selectedStats} /> : page === "sessions" ? sessionsError?.key === rangeKey && selectedSessions === undefined ? <div role="alert" className="rounded-2xl border border-error/30 bg-error/10 px-5 py-4 text-sm text-error">{sessionsError.message}</div> : selectedSessions === undefined ? <div className="space-y-4" aria-label="Loading your listening sessions">{[0, 1].map((item) => <div key={item} className="h-24 animate-pulse rounded-2xl border border-border-app bg-surface" />)}</div> : <SessionList sessions={selectedSessions} /> : customTopError?.key === rangeKey ? <div role="alert" className="rounded-2xl border border-error/30 bg-error/10 px-5 py-4 text-sm text-error">{customTopError.message}</div> : selected === null ? <div className="h-56 animate-pulse rounded-2xl border border-border-app bg-surface" aria-label="Loading your top tracks" /> : <section className="rounded-2xl border border-border-app/80 bg-surface/95 p-5 shadow-xl shadow-black/20 sm:p-6"><div className="mb-5 flex items-center justify-between"><h2 className="text-lg font-semibold text-fg">{contentTitle}</h2><span className="text-xs text-muted">{range === "custom" ? formatCustomRange(customDates!) : RANGE_LABELS[range]}</span></div>{page === "songs" && <RankedTracks tracks={selected?.tracks ?? []} />}{page === "artists" && <RankedArtists artists={selected?.artists ?? []} />}{page === "albums" && <RankedAlbums albums={selected?.albums ?? []} />}</section>}</motion.div></AnimatePresence>}
     </div>
   </main>;
 }
