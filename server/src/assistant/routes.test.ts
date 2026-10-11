@@ -1,6 +1,6 @@
 import express from "express";
 import { describe, expect, it, vi } from "vitest";
-import { parseChatMessages, registerAssistantRoutes } from "./routes";
+import { parseChatMessages, registerAssistantRoutes, runTool, scopedPipeline } from "./routes";
 
 describe("assistant chat input", () => {
   it("accepts a short user/assistant transcript and trims its messages", () => {
@@ -38,5 +38,71 @@ describe("assistant settings", () => {
     expect(saved).toMatchObject({ localPort: 32123 });
     expect(saved).not.toHaveProperty("encryptedApiKey");
     expect(response.json).toHaveBeenCalledWith({ error: "", configured: true, provider: "ollama", model: "qwen3", localPort: 32123 });
+  });
+});
+
+describe("assistant tools", () => {
+  function fakeDb() {
+    const find = vi.fn(() => ({ sort: () => ({ toArray: async () => [] }) }));
+    return { find, db: { collection: () => ({ find }) } as never };
+  }
+
+  it("looks up a custom date range, inclusive of its last day", async () => {
+    const { find, db } = fakeDb();
+    const result = await runTool(db, "user", "get_top_items", JSON.stringify({ range: "custom", startDate: "2025-10-11", endDate: "2025-10-11", kind: "artists" }));
+    expect(find).toHaveBeenCalledWith({ userId: "user", playedAt: { $gte: new Date("2025-10-11T00:00:00.000Z"), $lt: new Date("2025-10-12T00:00:00.000Z") } });
+    expect(result).toEqual({ range: "2025-10-11 to 2025-10-11", items: [] });
+  });
+
+  it("rejects a custom range without valid dates", async () => {
+    const { find, db } = fakeDb();
+    expect(await runTool(db, "user", "get_top_items", JSON.stringify({ range: "custom", startDate: "", endDate: "", kind: "artists" }))).toEqual({ error: "invalid_tool_arguments" });
+    expect(find).not.toHaveBeenCalled();
+  });
+});
+
+describe("assistant play queries", () => {
+  const scope = { userId: "user" };
+
+  it("wraps the model's stages in the user's scope and a row limit", () => {
+    const stages = [{ $match: { artists: "Paramore" } }, { $group: { _id: "$name", plays: { $sum: 1 } } }];
+    expect(scopedPipeline(scope, JSON.stringify(stages))).toEqual([{ $match: scope }, ...stages, { $limit: 50 }]);
+  });
+
+  it("keeps the user's scope first even when the model matches on another user", () => {
+    expect(scopedPipeline(scope, JSON.stringify([{ $match: { userId: "someone-else" } }]))?.[0]).toEqual({ $match: scope });
+  });
+
+  it.each([
+    ["reads another collection", [{ $lookup: { from: "Users", localField: "userId", foreignField: "_id", as: "user" } }]],
+    ["unions another collection", [{ $unionWith: "Users" }]],
+    ["hides a lookup inside a facet", [{ $facet: { leak: [{ $lookup: { from: "Users", pipeline: [], as: "users" } }] } }]],
+    ["writes results", [{ $match: {} }, { $out: "RecentPlays" }]],
+    ["merges into a collection", [{ $merge: { into: "Users" } }]],
+    ["runs JavaScript in a match", [{ $match: { $where: "sleep(100000)" } }]],
+    ["runs JavaScript in an expression", [{ $addFields: { leak: { $function: { body: "function() {}", args: [], lang: "js" } } } }]],
+    ["runs JavaScript in a group", [{ $group: { _id: null, leak: { $accumulator: { init: "function() {}", accumulate: "function() {}", merge: "function() {}", lang: "js" } } } }]],
+    ["uses a stage outside the allowlist", [{ $collStats: {} }]],
+    ["packs two stages into one object", [{ $match: {}, $out: "x" }]],
+  ])("refuses a pipeline that %s", (_reason, stages) => {
+    expect(scopedPipeline(scope, JSON.stringify(stages))).toBeNull();
+  });
+
+  it("refuses input that is not a JSON array of stages", () => {
+    expect(scopedPipeline(scope, "db.Users.find()")).toBeNull();
+    expect(scopedPipeline(scope, JSON.stringify({ $match: {} }))).toBeNull();
+    expect(scopedPipeline(scope, [{ $match: {} }])).toBeNull();
+  });
+
+  it("runs an allowed query scoped to the user and period, and never runs a refused one", async () => {
+    const aggregate = vi.fn(() => ({ toArray: async () => [{ _id: "Misery Business", plays: 3 }] }));
+    const db = { collection: () => ({ aggregate }) } as never;
+    const ask = (pipeline: unknown[]) => runTool(db, "user", "query_plays", JSON.stringify({ range: "custom", startDate: "2025-10-11", endDate: "2025-10-11", pipeline: JSON.stringify(pipeline) }));
+
+    expect(await ask([{ $sortByCount: "$name" }])).toEqual({ range: "2025-10-11 to 2025-10-11", rows: [{ _id: "Misery Business", plays: 3 }] });
+    expect(aggregate).toHaveBeenCalledWith([{ $match: { userId: "user", playedAt: { $gte: new Date("2025-10-11T00:00:00.000Z"), $lt: new Date("2025-10-12T00:00:00.000Z") } } }, { $sortByCount: "$name" }, { $limit: 50 }], { maxTimeMS: 5_000 });
+
+    expect(await ask([{ $unionWith: "Users" }])).toMatchObject({ error: "pipeline_not_allowed" });
+    expect(aggregate).toHaveBeenCalledTimes(1);
   });
 });
