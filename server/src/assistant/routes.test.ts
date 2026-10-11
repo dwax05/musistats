@@ -19,7 +19,7 @@ describe("assistant settings", () => {
     process.env.SPOTIFY_TOKEN_ENCRYPTION_KEY = "ab".repeat(32);
     const updateOne = vi.fn();
     const app = express();
-    registerAssistantRoutes(app, { collection: () => ({ updateOne }) } as never);
+    registerAssistantRoutes(app, { collection: () => ({ updateOne, findOne: vi.fn() }) } as never);
     const route = app.router.stack.find((layer) => layer.route?.path === "/api/assistant/settings")?.route;
     const response = { json: vi.fn(), status: vi.fn().mockReturnThis() };
     await route?.stack.at(-1)?.handle({ body: { provider: "gemini", model: "gemini-2.5-flash", apiKey: "secret-key" }, auth: { userId: "507f1f77bcf86cd799439011" } } as never, response as never, vi.fn());
@@ -30,7 +30,7 @@ describe("assistant settings", () => {
   it("allows a local model without storing an API key", async () => {
     const updateOne = vi.fn();
     const app = express();
-    registerAssistantRoutes(app, { collection: () => ({ updateOne }) } as never);
+    registerAssistantRoutes(app, { collection: () => ({ updateOne, findOne: vi.fn() }) } as never);
     const route = app.router.stack.find((layer) => layer.route?.path === "/api/assistant/settings")?.route;
     const response = { json: vi.fn(), status: vi.fn().mockReturnThis() };
     await route?.stack.at(-1)?.handle({ body: { provider: "ollama", model: "qwen3", localPort: 32123 }, auth: { userId: "507f1f77bcf86cd799439011" } } as never, response as never, vi.fn());

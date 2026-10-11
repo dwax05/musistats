@@ -85,7 +85,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           res = await post(url, body, accessToken.current ?? undefined);
         }
         setOffline(false);
-        if (!res.ok) return { error: "request_failed" };
+        if (!res.ok) {
+          // Keep the server's error code when it sent one, so callers can explain the failure.
+          const failure = (await res.json().catch(() => null)) as ApiResponse | null;
+          return typeof failure?.error === "string" && failure.error ? failure : { error: "request_failed" };
+        }
         return (await res.json()) as ApiResponse;
       } catch (err) {
         if (err instanceof TypeError) {
