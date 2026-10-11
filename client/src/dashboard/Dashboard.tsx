@@ -12,21 +12,18 @@ import TasteComparison from "./TasteComparison";
 type Page = "dashboard" | "assistant" | "stats" | "calendar" | "songs" | "artists" | "albums" | "sessions" | "settings" | "replay" | "compare";
 type SelectedRange = TimeRange | "custom";
 type CustomDates = { startDate: string; endDate: string };
+type NavigationPage = { value: Page; label: string };
+type NavigationGroup = { label: string; pages: NavigationPage[] };
 
-const primaryPages: { value: Page; label: string }[] = [
+const directPages: NavigationPage[] = [
   { value: "dashboard", label: "Dashboard" },
   { value: "assistant", label: "Ask MusiStats" },
-  { value: "stats", label: "All stats" },
-  { value: "sessions", label: "Sessions" },
-  { value: "calendar", label: "Calendar" },
 ];
 
-const topPages: { value: Page; label: string }[] = [
-  { value: "songs", label: "Songs" },
-  { value: "artists", label: "Artists" },
-  { value: "albums", label: "Albums" },
-  { value: "replay", label: "Taste replay" },
-  { value: "compare", label: "Taste compare" },
+const navigationGroups: NavigationGroup[] = [
+  { label: "Explore", pages: [{ value: "stats", label: "All stats" }, { value: "sessions", label: "Sessions" }, { value: "calendar", label: "Calendar" }] },
+  { label: "Library", pages: [{ value: "songs", label: "Songs" }, { value: "artists", label: "Artists" }, { value: "albums", label: "Albums" }] },
+  { label: "Taste", pages: [{ value: "replay", label: "Taste replay" }, { value: "compare", label: "Taste compare" }] },
 ];
 
 function SettingsIcon() {
@@ -36,6 +33,11 @@ function SettingsIcon() {
       <circle cx="12" cy="12" r="4.2" />
     </g>
   </svg>;
+}
+
+function SidebarPageButton({ item, page, onSelect, nested = false }: { item: NavigationPage; page: Page; onSelect: (page: Page) => void; nested?: boolean }) {
+  const active = page === item.value;
+  return <button type="button" onClick={() => onSelect(item.value)} aria-current={active ? "page" : undefined} className={`w-full rounded-xl border-l-2 px-3 py-2.5 text-left text-sm font-semibold transition focus-visible:outline-2 focus-visible:outline-accent ${nested ? "pl-6 text-[13px]" : ""} ${active ? "border-accent bg-accent/10 text-fg" : "border-transparent text-muted hover:bg-surface-raised hover:text-fg"}`}>{item.label}</button>;
 }
 
 function calendarDate(date: Date) {
@@ -232,6 +234,8 @@ export default function Dashboard({ initialData, initialSessions, initialStats, 
   const [tasteReplayInterval, setTasteReplayInterval] = useState<Partial<Record<TimeRange, number>>>({});
   const [tasteReplayError, setTasteReplayError] = useState<{ range: TimeRange; message: string } | null>(null);
   const [profileOpen, setProfileOpen] = useState(false);
+  const [browseOpen, setBrowseOpen] = useState(false);
+  const [expandedSection, setExpandedSection] = useState<string | null>(null);
   const profileMenuRef = useRef<HTMLDivElement>(null);
   const activeUser = demoUser ?? user;
   const rangeKey = range === "custom" && customDates ? `custom:${customDates.startDate}:${customDates.endDate}` : range;
@@ -388,6 +392,10 @@ export default function Dashboard({ initialData, initialSessions, initialStats, 
     setRange("custom");
     setCustomOpen(false);
   };
+  const selectPage = (next: Page) => {
+    setPage(next);
+    setBrowseOpen(false);
+  };
 
   if (page === "compare") return <TasteComparison onBack={() => setPage("dashboard")} demoStats={demoUser ? initialStats : undefined} />;
 
@@ -395,12 +403,17 @@ export default function Dashboard({ initialData, initialSessions, initialStats, 
     <motion.aside layout="position" transition={{ layout: { duration: 0.35, ease: "easeOut" } }} className="relative rounded-3xl border border-border-app bg-surface/95 px-5 py-6 shadow-xl shadow-black/20 sm:px-8 lg:sticky lg:top-5 lg:flex lg:h-[calc(100vh-2.5rem)] lg:w-64 lg:shrink-0 lg:flex-col lg:bg-surface lg:px-6 lg:py-8">
       <div className="flex items-center justify-between lg:block">
         <div><a href="/" className="text-2xl font-bold tracking-[-0.04em] text-fg">MusiStats</a><p className="mt-2 hidden text-xs text-muted lg:block">Your listening library</p></div>
-        <div ref={profileMenuRef} className="relative flex items-center gap-2 lg:absolute lg:bottom-6 lg:left-6 lg:right-6"><button type="button" aria-expanded={profileOpen} aria-controls="profile-menu" aria-haspopup="menu" onClick={() => setProfileOpen((open) => !open)} className="flex min-w-0 flex-1 items-center gap-3 rounded-xl px-0 py-0 text-left transition hover:text-accent focus-visible:outline-2 focus-visible:outline-accent">{activeUser?.avatarUrl ? <img src={activeUser.avatarUrl} alt="" className="h-8 w-8 rounded-full object-cover" /> : <div className="grid h-8 w-8 place-items-center rounded-full bg-accent/15 font-semibold text-accent">{activeUser?.displayName.charAt(0).toUpperCase()}</div>}<span className="hidden max-w-44 truncate text-sm font-medium text-fg sm:block">{activeUser?.displayName}</span></button><button type="button" onClick={() => setPage("settings")} aria-label="Settings" title="Settings" aria-current={page === "settings" ? "page" : undefined} className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl transition hover:bg-surface-raised hover:text-fg focus-visible:outline-2 focus-visible:outline-accent ${page === "settings" ? "bg-accent/10 text-accent" : "text-muted"}`}><SettingsIcon /></button>
+        <div ref={profileMenuRef} className="relative flex items-center gap-2 lg:absolute lg:bottom-6 lg:left-6 lg:right-6"><button type="button" aria-expanded={profileOpen} aria-controls="profile-menu" aria-haspopup="menu" onClick={() => setProfileOpen((open) => !open)} className="flex min-w-0 flex-1 items-center gap-3 rounded-xl px-0 py-0 text-left transition hover:text-accent focus-visible:outline-2 focus-visible:outline-accent">{activeUser?.avatarUrl ? <img src={activeUser.avatarUrl} alt="" className="h-8 w-8 rounded-full object-cover" /> : <div className="grid h-8 w-8 place-items-center rounded-full bg-accent/15 font-semibold text-accent">{activeUser?.displayName.charAt(0).toUpperCase()}</div>}<span className="hidden max-w-44 truncate text-sm font-medium text-fg sm:block">{activeUser?.displayName}</span></button><button type="button" onClick={() => selectPage("settings")} aria-label="Settings" title="Settings" aria-current={page === "settings" ? "page" : undefined} className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl transition hover:bg-surface-raised hover:text-fg focus-visible:outline-2 focus-visible:outline-accent ${page === "settings" ? "bg-accent/10 text-accent" : "text-muted"}`}><SettingsIcon /></button>
           <AnimatePresence initial={false}>{profileOpen && <motion.div id="profile-menu" initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.96 }} transition={{ duration: 0.16, ease: "easeOut" }} className="absolute right-0 z-10 mt-2 w-56 origin-top-right overflow-hidden rounded-xl border border-border-app bg-surface p-2 shadow-2xl shadow-black/50 lg:bottom-full lg:right-auto lg:left-0 lg:mb-3 lg:mt-0 lg:origin-bottom-left"><button onClick={() => demoUser ? window.location.assign("/") : void logout()} className="w-full rounded-lg px-3 py-2 text-left text-sm text-fg transition hover:bg-surface-raised">Log out</button><p className="px-3 pb-1 pt-3 text-[11px] leading-4 text-muted">Logging out does not stop data collection.</p><button onClick={() => void deleteAccount()} className="w-full rounded-lg px-3 py-2 text-left text-sm text-error transition hover:bg-error/10">Disconnect and delete data</button></motion.div>}</AnimatePresence>
       </div>
       </div>
 
-      <nav aria-label="MusiStats pages" className="mt-5 flex gap-1 overflow-x-auto border-t border-border-app pt-3 lg:mt-14 lg:flex-col lg:gap-1 lg:overflow-visible lg:border-0 lg:pt-0"><div className="flex shrink-0 gap-1 lg:flex-col">{primaryPages.map((item) => <button key={item.value} type="button" onClick={() => setPage(item.value)} aria-current={page === item.value ? "page" : undefined} className={`shrink-0 border-b-2 px-4 py-3 text-sm font-semibold transition lg:rounded-xl lg:border-l-2 lg:border-b-0 lg:px-3 lg:text-left ${page === item.value ? "border-accent text-fg lg:bg-accent/10" : "border-transparent text-muted hover:text-fg lg:hover:bg-surface-raised"}`}>{item.label}</button>)}</div><div className="flex shrink-0 gap-1 lg:mt-6 lg:flex-col lg:border-t lg:border-border-app lg:pt-5"><p className="hidden px-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted lg:block">Your top</p><div className="flex gap-1 lg:flex-col">{topPages.map((item) => <button key={item.value} type="button" onClick={() => setPage(item.value)} aria-current={page === item.value ? "page" : undefined} className={`shrink-0 border-b-2 px-4 py-3 text-sm font-semibold transition lg:rounded-xl lg:border-l-2 lg:border-b-0 lg:px-3 lg:text-left ${page === item.value ? "border-accent text-fg lg:bg-accent/10" : "border-transparent text-muted hover:text-fg lg:hover:bg-surface-raised"}`}>{item.label}</button>)}</div></div></nav>
+      <nav aria-label="MusiStats pages" className="mt-5 border-t border-border-app pt-3 lg:mt-14 lg:border-0 lg:pt-0"><button type="button" aria-expanded={browseOpen} aria-controls="sidebar-pages" onClick={() => setBrowseOpen((open) => !open)} className="flex w-full items-center justify-between rounded-xl bg-surface-raised px-3 py-2.5 text-left text-sm font-semibold text-fg transition hover:bg-surface-raised/70 focus-visible:outline-2 focus-visible:outline-accent lg:hidden"><span>Browse</span><span aria-hidden="true" className={`text-lg leading-none transition ${browseOpen ? "rotate-180" : ""}`}>⌄</span></button><div id="sidebar-pages" className={`mt-3 gap-1 ${browseOpen ? "grid" : "hidden"} lg:mt-0 lg:grid`}>{directPages.map((item) => <SidebarPageButton key={item.value} item={item} page={page} onSelect={selectPage} />)}<div className="mt-2 space-y-1 border-t border-border-app pt-2">{navigationGroups.map((group) => {
+        const active = group.pages.some((item) => item.value === page);
+        const open = active || expandedSection === group.label;
+        const contentId = `sidebar-${group.label.toLowerCase()}`;
+        return <div key={group.label}><button type="button" aria-expanded={open} aria-controls={contentId} onClick={() => setExpandedSection((current) => current === group.label ? null : group.label)} className={`flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left text-sm font-semibold transition hover:bg-surface-raised focus-visible:outline-2 focus-visible:outline-accent ${active ? "text-fg" : "text-muted"}`}><span>{group.label}</span><span aria-hidden="true" className="text-xs font-medium">{open ? "Hide" : "Show"}</span></button><AnimatePresence initial={false}>{open && <motion.div id={contentId} initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.2, ease: "easeOut" }} className="overflow-hidden"><div className="mt-1 space-y-1">{group.pages.map((item) => <SidebarPageButton key={item.value} item={item} page={page} onSelect={selectPage} nested />)}</div></motion.div>}</AnimatePresence></div>;
+      })}</div></div></nav>
     </motion.aside>
 
     <div className="mx-auto w-full max-w-7xl px-2 pb-16 pt-8 sm:px-3 lg:px-8 lg:py-5">
