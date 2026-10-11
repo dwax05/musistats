@@ -346,7 +346,7 @@ export default function Dashboard({ initialData, initialSessions, initialStats, 
     { label: "Most listened to song", value: last24Hours.topTrack?.name ?? "—", imageUrl: last24Hours.topTrack?.imageUrl, imageAlt: last24Hours.topTrack?.name, className: "md:col-span-2 lg:col-span-3" },
   ];
 
-  const rangeOptions: { value: SelectedRange; label: string }[] = [...(Object.keys(RANGE_LABELS) as TimeRange[]).map((value) => ({ value, label: RANGE_LABELS[value] })), { value: "custom", label: "All time" }];
+  const rangeOptions: { value: SelectedRange; label: string }[] = [...(Object.keys(RANGE_LABELS) as TimeRange[]).map((value) => ({ value, label: RANGE_LABELS[value] })), { value: "custom", label: "Custom" }];
   const replayRangeOptions = rangeOptions.filter((option): option is { value: TimeRange; label: string } => option.value === "medium_term" || option.value === "long_term");
   const changeRange = (value: SelectedRange) => {
     if (value === "custom") {
