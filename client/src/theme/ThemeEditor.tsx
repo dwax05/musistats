@@ -45,7 +45,6 @@ export default function ThemeEditor({ authedPost, demo = false }: ThemeEditorPro
   const [importText, setImportText] = useState("");
   const [importOpen, setImportOpen] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [saveFlash, setSaveFlash] = useState(false);
   const [status, setStatus] = useState("");
   const initialLoadDone = useRef(false);
 
@@ -114,8 +113,6 @@ export default function ThemeEditor({ authedPost, demo = false }: ThemeEditorPro
     const css = serializeThemeCss(entries);
     setBusy(true);
     setStatus("");
-    setSaveFlash(true);
-    window.setTimeout(() => setSaveFlash(false), 250);
     if (demo) {
       savedCss.current = css;
       unsaved.current = false;
@@ -213,22 +210,20 @@ export default function ThemeEditor({ authedPost, demo = false }: ThemeEditorPro
     setStatus("Imported theme preview");
   }
 
-  return <div className="space-y-6">
-    <div className="grid items-start gap-6 md:grid-cols-[auto_minmax(0,1fr)]">
+  return <div className="grid items-start gap-6 md:grid-cols-[auto_minmax(0,1fr)]">
+    <div className="space-y-4">
       <section className={`${card} space-y-8`}>{THEME_VARIABLE_GROUPS.map((group) => <fieldset key={group.label} className="min-w-0 space-y-3"><legend className="mb-3 text-xs font-semibold uppercase tracking-widest text-muted">{group.label}</legend>{group.variables.map((key) => {
         const entry = entries.find((item) => item.key === key)!;
         return <div key={key} className="grid grid-cols-[6.5rem_2.25rem_6rem] items-center gap-3"><span className="truncate text-sm text-muted">{LABELS[key]}</span><input aria-label={`${LABELS[key]} color picker`} type="color" value={entry.value} onChange={(event) => { setDraftValues((current) => ({ ...current, [key]: event.target.value })); updateEntry(key, event.target.value); }} className="h-9 w-9 cursor-pointer appearance-none rounded-lg border-0 bg-transparent p-0 [&::-moz-color-swatch]:rounded-lg [&::-moz-color-swatch]:border-0 [&::-webkit-color-swatch]:rounded-lg [&::-webkit-color-swatch]:border-0 [&::-webkit-color-swatch-wrapper]:p-0" /><input aria-label={`${LABELS[key]} hex color`} value={draftValues[key] ?? entry.value} onChange={(event) => { const value = event.target.value; setDraftValues((current) => ({ ...current, [key]: value })); if (/^#[\da-f]{6}$/i.test(value)) updateEntry(key, value.toLowerCase()); }} spellCheck={false} style={{ backgroundColor: entry.value, color: readableOn(entry.value) }} className="min-h-9 w-full rounded-lg px-3 font-mono text-sm font-semibold focus-visible:outline-2 focus-visible:outline-accent" /></div>;
       })}</fieldset>)}</section>
-
-      <aside className={`${card} space-y-6`}>
-        <section><h3 className="text-xs font-semibold uppercase tracking-widest text-muted">Presets</h3><div className={cardGrid}>{THEME_PRESETS.map((preset) => <button key={preset.id} type="button" data-theme={preset.id} aria-pressed={theme === preset.id && !customCss} onClick={() => selectPreset(preset.id)} className={`flex h-24 min-w-0 flex-col justify-between gap-4 rounded-xl border bg-(--bg) p-3 text-left text-sm font-semibold text-(--fg) transition hover:brightness-110 focus-visible:outline-2 focus-visible:outline-accent ${theme === preset.id && !customCss ? "border-(--accent) ring-2 ring-(--accent)" : "border-transparent"}`}>{dots}<span>{preset.name}</span></button>)}</div></section>
-
-        <section><h3 className="text-xs font-semibold uppercase tracking-widest text-muted">Saved</h3><div className={cardGrid}>{slots.map((slot, index) => <div key={index} style={slot ? slot as CSSProperties : undefined} className={`relative flex h-24 min-w-0 flex-col justify-between gap-4 rounded-xl border border-(--border) bg-(--bg) p-3 text-sm font-semibold ${slot ? "text-(--fg)" : "text-muted"}`}>{slot && <button type="button" aria-label={`Load slot ${index + 1}`} onClick={() => loadSlot(slot)} className="absolute inset-0 rounded-xl focus-visible:outline-2 focus-visible:outline-accent" />}<span className="flex items-center justify-between gap-1">{slot ? <button type="button" aria-label={`Clear slot ${index + 1}`} title="Clear slot" onClick={() => clearSlot(index)} className={slotAction}>×</button> : <span />}{slot && dots}</span><span className="flex items-center justify-between gap-1"><span className="truncate">Slot {index + 1}</span><button type="button" aria-label={`Save current theme to slot ${index + 1}`} title="Save current colors here" onClick={() => saveSlot(index)} className={slotAction}>↓</button></span></div>)}</div></section>
-      </aside>
+      {/* w-0 min-w-full keeps the status text and textarea from widening the auto-sized column. */}
+      <footer className="w-0 min-w-full space-y-3"><div className="grid grid-cols-2 gap-2"><button type="button" onClick={() => void saveTheme()} disabled={busy} className="rounded-lg bg-accent px-4 py-2 text-sm font-bold text-accent-fg transition hover:brightness-110 disabled:cursor-wait">Save</button><button type="button" onClick={resetTheme} className={outlineButton}>Reset</button><button type="button" onClick={() => void exportTheme()} className={outlineButton}>Export</button><button type="button" aria-expanded={importOpen} onClick={() => setImportOpen((open) => !open)} className={outlineButton}>Import</button></div><p role="status" aria-live="polite" className="min-h-5 text-sm text-muted">{status}</p>{importOpen && <div className="space-y-3"><label className="grid gap-1 text-xs font-medium text-muted">Theme CSS<textarea value={importText} onChange={(event) => setImportText(event.target.value)} rows={7} spellCheck={false} className="w-full rounded-lg border border-border-app bg-surface p-3 font-mono text-xs text-fg focus-visible:outline-2 focus-visible:outline-accent" /></label><button type="button" onClick={importTheme} className={outlineButton}>Apply imported CSS</button></div>}</footer>
     </div>
 
-    <footer className="flex flex-wrap items-center gap-2 border-t border-border-app pt-5"><button type="button" onClick={() => void saveTheme()} disabled={busy} style={saveFlash ? { background: "var(--success, var(--accent))" } : undefined} className="rounded-lg bg-accent px-4 py-2 text-sm font-bold text-accent-fg transition-all duration-100 hover:brightness-110 disabled:cursor-wait disabled:opacity-60">{busy ? "Saving…" : "Save"}</button><button type="button" onClick={resetTheme} className={outlineButton}>Reset</button><p role="status" aria-live="polite" className="min-h-5 flex-1 basis-40 px-2 text-sm text-muted">{status}</p><button type="button" onClick={() => void exportTheme()} className={outlineButton}>Export</button><button type="button" aria-expanded={importOpen} onClick={() => setImportOpen((open) => !open)} className={outlineButton}>Import</button></footer>
+    <aside className={`${card} space-y-6`}>
+      <section><h3 className="text-xs font-semibold uppercase tracking-widest text-muted">Presets</h3><div className={cardGrid}>{THEME_PRESETS.map((preset) => <button key={preset.id} type="button" data-theme={preset.id} aria-pressed={theme === preset.id && !customCss} onClick={() => selectPreset(preset.id)} className={`flex h-24 min-w-0 flex-col justify-between gap-4 rounded-xl border bg-(--bg) p-3 text-left text-sm font-semibold text-(--fg) transition hover:brightness-110 focus-visible:outline-2 focus-visible:outline-accent ${theme === preset.id && !customCss ? "border-(--accent) ring-2 ring-(--accent)" : "border-transparent"}`}>{dots}<span>{preset.name}</span></button>)}</div></section>
 
-    {importOpen && <div className="space-y-3"><label className="grid gap-1 text-xs font-medium text-muted">Theme CSS<textarea value={importText} onChange={(event) => setImportText(event.target.value)} rows={7} spellCheck={false} className="w-full rounded-lg border border-border-app bg-surface p-3 font-mono text-xs text-fg focus-visible:outline-2 focus-visible:outline-accent" /></label><button type="button" onClick={importTheme} className={outlineButton}>Apply imported CSS</button></div>}
+      <section><h3 className="text-xs font-semibold uppercase tracking-widest text-muted">Saved</h3><div className={cardGrid}>{slots.map((slot, index) => <div key={index} style={slot ? slot as CSSProperties : undefined} className={`relative flex h-24 min-w-0 flex-col justify-between gap-4 rounded-xl border border-(--border) bg-(--bg) p-3 text-sm font-semibold ${slot ? "text-(--fg)" : "text-muted"}`}>{slot && <button type="button" aria-label={`Load slot ${index + 1}`} onClick={() => loadSlot(slot)} className="absolute inset-0 rounded-xl focus-visible:outline-2 focus-visible:outline-accent" />}<span className="flex items-center justify-between gap-1">{slot ? <button type="button" aria-label={`Clear slot ${index + 1}`} title="Clear slot" onClick={() => clearSlot(index)} className={slotAction}>×</button> : <span />}{slot && dots}</span><span className="flex items-center justify-between gap-1"><span className="truncate">Slot {index + 1}</span><button type="button" aria-label={`Save current theme to slot ${index + 1}`} title="Save current colors here" onClick={() => saveSlot(index)} className={slotAction}>↓</button></span></div>)}</div></section>
+    </aside>
   </div>;
 }
