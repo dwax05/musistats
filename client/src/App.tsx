@@ -9,6 +9,7 @@ import ConnectScreen from "./auth/ConnectScreen";
 import Dashboard from "./dashboard/Dashboard";
 import type { DashboardData, ListeningSession, StatsData, TasteReplayFrame, TimeRange } from "./dashboard/model";
 import DotField from "./ui/DotField";
+import ThemeProvider from "./ui/ThemeProvider";
 
 function AuthGate() {
   const { user } = useAuth();
@@ -29,10 +30,12 @@ function AuthGate() {
 export default function App() {
   return (
     <AuthProvider>
-      <div className="fixed inset-0 -z-20 bg-bg" />
-      <DotField />
-      <AuthGate />
-      <UpdateBanner />
+      <ThemeProvider>
+        <div className="fixed inset-0 -z-20 bg-bg" />
+        <DotField />
+        <AuthGate />
+        <UpdateBanner />
+      </ThemeProvider>
     </AuthProvider>
   );
 }

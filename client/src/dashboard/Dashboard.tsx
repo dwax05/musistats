@@ -29,11 +29,9 @@ const navigationGroups: NavigationGroup[] = [
 const comparePeriodOptions: { value: "previous" | "current"; label: string }[] = [{ value: "previous", label: "Previous" }, { value: "current", label: "Current" }];
 
 function SettingsIcon() {
-  return <svg viewBox="0 0 24 24" aria-hidden="true" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round">
-    <g transform="translate(0.5 0)">
-      <path d="M12 3.2a1.8 1.8 0 0 1 1.8 1.8v1.2a5.4 5.4 0 0 1 1.7.8l.9-.9a1.8 1.8 0 1 1 2.5 2.5l-.9.9a5.4 5.4 0 0 1 .8 1.7h1.2a1.8 1.8 0 1 1 0 3.6h-1.2a5.4 5.4 0 0 1-.8 1.7l.9.9a1.8 1.8 0 1 1-2.5 2.5l-.9-.9a5.4 5.4 0 0 1-1.7.8v1.2a1.8 1.8 0 1 1-3.6 0v-1.2a5.4 5.4 0 0 1-1.7-.8l-.9.9a1.8 1.8 0 1 1-2.5-2.5l.9-.9a5.4 5.4 0 0 1-.8-1.7H3.2a1.8 1.8 0 1 1 0-3.6h1.2a5.4 5.4 0 0 1 .8-1.7L4.3 8.1a1.8 1.8 0 1 1 2.5-2.5l.9.9a5.4 5.4 0 0 1 1.7-.8V4.5A1.8 1.8 0 0 1 12 3.2Z" />
-      <circle cx="12" cy="12" r="4.2" />
-    </g>
+  return <svg viewBox="0 0 24 24" aria-hidden="true" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M9.8 3.2h4.4l.6 2.3a7.2 7.2 0 0 1 1.5.9l2.2-.8 2.2 3.8-1.7 1.6a7.3 7.3 0 0 1 0 1.9l1.7 1.6-2.2 3.8-2.2-.8a7.2 7.2 0 0 1-1.5.9l-.6 2.3H9.8l-.6-2.3a7.2 7.2 0 0 1-1.5-.9l-2.2.8-2.2-3.8L5 13a7.3 7.3 0 0 1 0-1.9L3.3 9.5l2.2-3.8 2.2.8a7.2 7.2 0 0 1 1.5-.9l.6-2.4Z" />
+    <circle cx="12" cy="12" r="3.3" />
   </svg>;
 }
 

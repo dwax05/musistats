@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { ApiResponse } from "../auth/AuthProvider";
 import { isActiveImport, isCreatedImportData, isImportData, isImportsData, isImportTransitionData, sourceLabel, type ImportSummary } from "./model";
 import AssistantSettings from "./AssistantSettings";
+import { useTheme } from "../ui/ThemeProvider";
 
 type SettingsPanelProps = {
   authedPost: (url: string, body?: unknown) => Promise<ApiResponse>;
@@ -143,5 +144,6 @@ function ImportsPanel({ authedPost, onHistoryChanged }: SettingsPanelProps) {
 }
 
 export default function SettingsPanel({ authedPost, onHistoryChanged }: SettingsPanelProps) {
-  return <div className="space-y-6"><AssistantSettings authedPost={authedPost} /><ImportsPanel authedPost={authedPost} onHistoryChanged={onHistoryChanged} /></div>;
+  const { theme, setTheme } = useTheme();
+  return <div className="space-y-6"><section className="rounded-2xl border border-border-app/80 bg-surface/95 p-5 shadow-xl shadow-black/20 sm:p-6"><div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="text-lg font-semibold text-fg">Appearance</h2><p className="mt-1 text-sm text-muted">Choose the color theme for MusiStats on this device.</p></div><label className="flex items-center gap-3 text-sm font-semibold text-fg"><span>Light mode</span><input type="checkbox" role="switch" aria-label="Light mode" aria-checked={theme === "light"} checked={theme === "light"} onChange={(event) => setTheme(event.target.checked ? "light" : "dark")} className="peer sr-only" /><span aria-hidden="true" className="relative h-6 w-11 rounded-full bg-border-app transition-colors after:absolute after:left-1 after:top-1 after:h-4 after:w-4 after:rounded-full after:bg-surface after:transition-transform peer-checked:bg-accent peer-checked:after:translate-x-5 peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-accent" /></label></div></section><AssistantSettings authedPost={authedPost} /><ImportsPanel authedPost={authedPost} onHistoryChanged={onHistoryChanged} /></div>;
 }

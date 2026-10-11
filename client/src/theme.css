@@ -1,5 +1,6 @@
-/* The MVP is dark-only. Keeping every surface tokenized makes future themes a CSS-only change. */
+/* Keep surface colors tokenized so appearance changes apply across every page. */
 :root {
+  --color-scheme: dark;
   --bg: #080b09;
   --surface: #111713;
   --surface-raised: #19211c;
@@ -9,4 +10,17 @@
   --accent-fg: #041108;
   --error: #ff6b6b;
   --border: #27322b;
+}
+
+[data-theme="light"] {
+  --color-scheme: light;
+  --bg: #f3f6f3;
+  --surface: #ffffff;
+  --surface-raised: #e8eee9;
+  --fg: #17211a;
+  --muted: #59675e;
+  --accent: #168044;
+  --accent-fg: #ffffff;
+  --error: #bf3434;
+  --border: #d2ddd4;
 }
