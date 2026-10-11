@@ -263,3 +263,12 @@ export function summarizeLast24Hours(recent: RecentTrack[], now = Date.now()): T
     playsByHour,
   };
 }
+
+export type CalendarZoom = "days" | "months" | "years";
+export const CALENDAR_YEARS_PER_PAGE = 12;
+
+// One arrow press in the range calendar: a month in the day grid, a year in the month grid, a page in the year grid.
+export function shiftCalendar(month: Date, zoom: CalendarZoom, direction: 1 | -1) {
+  const years = zoom === "years" ? CALENDAR_YEARS_PER_PAGE : zoom === "months" ? 1 : 0;
+  return new Date(Date.UTC(month.getUTCFullYear() + years * direction, month.getUTCMonth() + (zoom === "days" ? direction : 0), 1));
+}

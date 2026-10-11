@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isDashboardData, isSessionsData, isStatsData, isTasteReplayData, summarizeLast24Hours } from "./model";
+import { isDashboardData, isSessionsData, isStatsData, isTasteReplayData, shiftCalendar, summarizeLast24Hours } from "./model";
 
 describe("dashboard response validation", () => {
   it("accepts the dashboard shape and rejects incomplete data", () => {
@@ -94,5 +94,15 @@ describe("dashboard response validation", () => {
     expect(isTasteReplayData({ ...response, status: "genre_lookup_failed" })).toBe(true);
     expect(isTasteReplayData({ ...response, intervalDays: 0 })).toBe(false);
     expect(isTasteReplayData({ ...response, source: "unknown" })).toBe(false);
+  });
+});
+
+describe("range calendar navigation", () => {
+  it("steps by a month, a year, or a page of years depending on the zoom level", () => {
+    const january = new Date("2026-01-01T00:00:00.000Z");
+    expect(shiftCalendar(january, "days", -1).toISOString().slice(0, 10)).toBe("2025-12-01");
+    expect(shiftCalendar(january, "months", -1).toISOString().slice(0, 10)).toBe("2025-01-01");
+    expect(shiftCalendar(january, "years", -1).toISOString().slice(0, 10)).toBe("2014-01-01");
+    expect(shiftCalendar(january, "years", 1).toISOString().slice(0, 10)).toBe("2038-01-01");
   });
 });
