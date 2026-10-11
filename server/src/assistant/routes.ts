@@ -1,6 +1,6 @@
 import { ObjectId, type Db } from "mongodb";
 import type { Express } from "express";
-import { rangeBounds, type TimeRange } from "../analytics/range";
+import { CUSTOM_TIME_RANGE, TIME_RANGES, isAnalyticsRange, rangeBounds } from "../analytics/range";
 import { authPayload, requireAuth } from "../auth/routes";
 import { historyTop } from "../dashboard/routes";
 import { buildSessions, type StoredPlay as SessionPlay } from "../sessions/routes";
@@ -8,12 +8,17 @@ import { buildStats } from "../stats/routes";
 import { decryptSecret, encryptSecret } from "../spotify/client";
 import { ChatGPTError, chatgptAccessToken, chatgptResponse, chatgptSignOut, chatgptStatus, registerChatGPTRoutes } from "./chatgpt";
 
-const RANGES = ["short_term", "medium_term", "long_term"] as const;
 const PROVIDERS = ["openai", "chatgpt", "anthropic", "gemini", "huggingface", "ollama", "lmstudio"] as const;
 const MAX_MESSAGES = 10;
 const MAX_MESSAGE_LENGTH = 1_000;
 const MAX_TOOL_ROUNDS = 4;
-type AssistantRange = TimeRange;
+const MAX_QUERY_LENGTH = 4_000;
+const MAX_QUERY_ROWS = 50;
+const MAX_QUERY_RESULT_LENGTH = 20_000;
+// query_plays may only use stages that reshape the plays already in the pipeline.
+const QUERY_STAGES = ["$match", "$group", "$sort", "$limit", "$skip", "$project", "$addFields", "$set", "$unset", "$unwind", "$count", "$sortByCount", "$bucket", "$bucketAuto"];
+// Refused anywhere in a query: these read other collections, write, or run JavaScript on the database server.
+const FORBIDDEN_OPERATORS = ["$lookup", "$unionWith", "$graphLookup", "$facet", "$documents", "$out", "$merge", "$function", "$accumulator", "$where"];
 type Provider = typeof PROVIDERS[number];
 type ChatMessage = { role: "user" | "assistant"; content: string };
 type AssistantPlay = SessionPlay & { albumName?: string | null };
@@ -22,11 +27,22 @@ type UserWithAssistant = { assistant?: Partial<AssistantConfig>; chatgpt?: unkno
 type ToolCall = { type: "function_call"; call_id: string; name: string; arguments: string };
 type OpenAIResponse = { output: unknown[]; output_text?: string };
 
-const instructions = "You are MusiStats, a helpful assistant for one listener's music history. Answer only from tool results. Use a tool before making claims about listening data. Be concise, state the period used, and say when data is unavailable or a request is outside the supported periods. You can discuss playlist ideas, but you cannot create, edit, or save playlists. Never claim an action was performed.";
+// The date lets the model turn "a year ago today" or "last March" into a custom period.
+function instructions() {
+  return `You are MusiStats, a helpful assistant for one listener's music history. Today is ${new Date().toISOString().slice(0, 10)} (UTC). Answer only from tool results. Use a tool before making claims about listening data. Tools accept the preset periods or any custom date range, so work out the dates for requests like a specific day, month, or year. Be concise, reply in plain text without Markdown, state the period used, and say when data is unavailable. You can discuss playlist ideas, but you cannot create, edit, or save playlists. Never claim an action was performed.`;
+}
+// Every tool takes the same period. Dates are empty strings rather than optional so the schema stays valid for every provider.
+const period = {
+  range: { type: "string", enum: [...TIME_RANGES, CUSTOM_TIME_RANGE], description: "short_term is the last 4 weeks, medium_term is the last 6 months, long_term is all available history. Use custom with startDate and endDate for any other period, such as one day, a month, or a year." },
+  startDate: { type: "string", description: "First day of a custom period as YYYY-MM-DD in UTC. Empty string unless range is custom." },
+  endDate: { type: "string", description: "Last day of a custom period, inclusive, as YYYY-MM-DD in UTC. Empty string unless range is custom." },
+};
+const periodFields = Object.keys(period);
 const tools = [
-  { type: "function", name: "get_top_items", description: "Get the user's top artists, tracks, or albums for a listening period.", strict: true, parameters: { type: "object", properties: { range: { type: "string", enum: RANGES, description: "short_term is 4 weeks, medium_term is 6 months, long_term is all available history." }, kind: { type: "string", enum: ["artists", "tracks", "albums"] } }, required: ["range", "kind"], additionalProperties: false } },
-  { type: "function", name: "get_listening_stats", description: "Get listening time, song count, artist count, and top artists for a listening period.", strict: true, parameters: { type: "object", properties: { range: { type: "string", enum: RANGES, description: "short_term is 4 weeks, medium_term is 6 months, long_term is all available history." } }, required: ["range"], additionalProperties: false } },
-  { type: "function", name: "get_listening_sessions", description: "Get the user's longest listening sessions for a listening period.", strict: true, parameters: { type: "object", properties: { range: { type: "string", enum: RANGES, description: "short_term is 4 weeks, medium_term is 6 months, long_term is all available history." } }, required: ["range"], additionalProperties: false } },
+  { type: "function", name: "get_top_items", description: "Get the user's top artists, tracks, or albums for a listening period.", strict: true, parameters: { type: "object", properties: { ...period, kind: { type: "string", enum: ["artists", "tracks", "albums"] } }, required: [...periodFields, "kind"], additionalProperties: false } },
+  { type: "function", name: "get_listening_stats", description: "Get listening time, song count, artist count, and top artists for a listening period.", strict: true, parameters: { type: "object", properties: { ...period }, required: periodFields, additionalProperties: false } },
+  { type: "function", name: "get_listening_sessions", description: "Get the user's longest listening sessions for a listening period.", strict: true, parameters: { type: "object", properties: { ...period }, required: periodFields, additionalProperties: false } },
+  { type: "function", name: "query_plays", description: "Run a read-only MongoDB aggregation over the listener's plays in a period, for questions the other tools cannot answer, such as a specific artist, track, or album, time of day, weekday, first or last play, or counts by month. Each play document has: name (track title), artists (array of artist names), albumName (string or null, often missing), durationMs (number), playedAt (UTC date), trackId (string). At most 50 rows are returned, so aggregate or $limit.", strict: true, parameters: { type: "object", properties: { ...period, pipeline: { type: "string", description: `JSON array of aggregation stages. Allowed stages: ${QUERY_STAGES.join(", ")}. The period is already applied, so choose dates with range, startDate, and endDate instead of comparing playedAt to date literals. Match names case-insensitively with $regex and $options "i". Example: [{"$match":{"artists":"Paramore"}},{"$group":{"_id":"$name","plays":{"$sum":1}}},{"$sort":{"plays":-1}},{"$limit":10}]` } }, required: [...periodFields, "pipeline"], additionalProperties: false } },
 ];
 // ChatGPT plan usage accepts function tools only when they are grouped in a namespace.
 const planTools = [{ type: "namespace", name: "musistats", description: "Read-only lookups over the listener's MusiStats history.", tools }];
@@ -37,7 +53,6 @@ function isProvider(value: unknown): value is Provider { return typeof value ===
 function isLocalProvider(provider: Provider) { return provider === "ollama" || provider === "lmstudio"; }
 function needsApiKey(provider: Provider) { return !isLocalProvider(provider) && provider !== "chatgpt"; }
 function isLocalPort(value: unknown): value is number { return typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= 65_535; }
-function isRange(value: unknown): value is AssistantRange { return typeof value === "string" && RANGES.includes(value as AssistantRange); }
 function asRecord(value: unknown): Record<string, unknown> { return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {}; }
 function parseObject(value: string): Record<string, unknown> { try { return asRecord(JSON.parse(value)); } catch { return {}; } }
 function isToolCall(value: unknown): value is ToolCall { const call = asRecord(value); return call.type === "function_call" && typeof call.call_id === "string" && typeof call.name === "string" && typeof call.arguments === "string"; }
@@ -61,21 +76,51 @@ async function userConfig(db: Db, userId: string): Promise<AssistantConfig | nul
   return configFrom((await db.collection<UserWithAssistant>("Users").findOne({ _id: new ObjectId(userId) }))?.assistant);
 }
 
-function filterFor(userId: string, range: AssistantRange) {
-  const bounds = rangeBounds(range, new Date());
-  return !bounds || !bounds.start && !bounds.end ? { userId } : { userId, playedAt: { ...(bounds.start ? { $gte: bounds.start } : {}), ...(bounds.end ? { $lt: bounds.end } : {}) } };
+function usesForbiddenOperator(value: unknown): boolean {
+  if (Array.isArray(value)) return value.some(usesForbiddenOperator);
+  if (!value || typeof value !== "object") return false;
+  return Object.entries(value).some(([key, child]) => FORBIDDEN_OPERATORS.includes(key) || usesForbiddenOperator(child));
 }
 
-async function runTool(db: Db, userId: string, name: string, rawArguments: string) {
+// The model writes only the middle of the query. The server owns the collection, the leading $match on the signed-in
+// user, and the trailing $limit, and no accepted stage can reach beyond the documents that $match lets through.
+export function scopedPipeline(scope: Record<string, unknown>, rawPipeline: unknown): Record<string, unknown>[] | null {
+  if (typeof rawPipeline !== "string" || rawPipeline.length > MAX_QUERY_LENGTH) return null;
+  let stages: unknown;
+  try { stages = JSON.parse(rawPipeline); } catch { return null; }
+  if (!Array.isArray(stages)) return null;
+  const allowed = stages.every((stage) => {
+    const operators = Object.keys(asRecord(stage));
+    return operators.length === 1 && QUERY_STAGES.includes(operators[0]) && !usesForbiddenOperator(stage);
+  });
+  return allowed ? [{ $match: scope }, ...stages, { $limit: MAX_QUERY_ROWS }] : null;
+}
+
+export async function runTool(db: Db, userId: string, name: string, rawArguments: string) {
   const args = parseObject(rawArguments);
-  if (!isRange(args.range)) return { error: "invalid_tool_arguments" };
-  const range = args.range;
-  const plays = await db.collection<AssistantPlay>("RecentPlays").find(filterFor(userId, range)).sort({ playedAt: 1 }).toArray();
+  if (!isAnalyticsRange(args.range)) return { error: "invalid_tool_arguments" };
+  const now = new Date();
+  const bounds = rangeBounds(args.range, now, args.startDate, args.endDate);
+  if (!bounds) return { error: "invalid_tool_arguments" };
+  const range = args.range === CUSTOM_TIME_RANGE ? `${args.startDate} to ${args.endDate}` : args.range;
+  const filter = bounds.start || bounds.end ? { userId, playedAt: { ...(bounds.start ? { $gte: bounds.start } : {}), ...(bounds.end ? { $lt: bounds.end } : {}) } } : { userId };
+  if (name === "query_plays") {
+    const pipeline = scopedPipeline(filter, args.pipeline);
+    if (!pipeline) return { error: "pipeline_not_allowed", allowedStages: QUERY_STAGES };
+    try {
+      const rows = await db.collection("RecentPlays").aggregate(pipeline, { maxTimeMS: 5_000 }).toArray();
+      return JSON.stringify(rows).length > MAX_QUERY_RESULT_LENGTH ? { error: "result_too_large", hint: "Aggregate, $project fewer fields, or use a smaller $limit." } : { range, rows };
+    } catch (error) {
+      // The database's message lets the model correct a malformed pipeline.
+      return { error: "query_failed", message: error instanceof Error ? error.message.slice(0, 300) : "" };
+    }
+  }
+  const plays = await db.collection<AssistantPlay>("RecentPlays").find(filter).sort({ playedAt: 1 }).toArray();
   if (name === "get_top_items") {
     if (args.kind !== "artists" && args.kind !== "tracks" && args.kind !== "albums") return { error: "invalid_tool_arguments" };
     return { range, items: historyTop(plays)[args.kind] };
   }
-  if (name === "get_listening_stats") return { range, stats: buildStats(range, new Date(), plays, plays[0]?.playedAt ?? null) };
+  if (name === "get_listening_stats") return { range, stats: buildStats(args.range, now, plays, plays[0]?.playedAt ?? null, bounds) };
   if (name === "get_listening_sessions") return { range, sessions: buildSessions(userId, plays).slice(0, 10).map(({ tracks: _tracks, ...session }) => session) };
   return { error: "unknown_tool" };
 }
@@ -102,8 +147,8 @@ async function answerOpenAICompatible(url: string, config: AssistantConfig, apiK
   let input: unknown[] = messages.map((message) => ({ role: message.role, content: message.content }));
   for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
     const response = (plan
-      ? await chatgptResponse(apiKey, { model: config.model, instructions, input, tools: planTools, parallel_tool_calls: false, include: ["reasoning.encrypted_content"] })
-      : await request(url, apiKey ? { Authorization: `Bearer ${apiKey}` } : {}, { model: config.model, instructions, input, tools, parallel_tool_calls: false, max_output_tokens: 500, store: false })) as OpenAIResponse;
+      ? await chatgptResponse(apiKey, { model: config.model, instructions: instructions(), input, tools: planTools, parallel_tool_calls: false, include: ["reasoning.encrypted_content"] })
+      : await request(url, apiKey ? { Authorization: `Bearer ${apiKey}` } : {}, { model: config.model, instructions: instructions(), input, tools, parallel_tool_calls: false, max_output_tokens: 500, store: false })) as OpenAIResponse;
     const calls = Array.isArray(response.output) ? response.output.filter(isToolCall) : [];
     if (!calls.length) return outputText(response);
     const outputs = await Promise.all(calls.map(async (call) => ({
@@ -119,7 +164,7 @@ function anthropicTools() { return tools.map(({ name, description, parameters })
 async function answerAnthropic(config: AssistantConfig, apiKey: string, db: Db, userId: string, messages: ChatMessage[]) {
   let history: unknown[] = messages.map((message) => ({ role: message.role === "assistant" ? "assistant" : "user", content: message.content }));
   for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
-    const response = asRecord(await request("https://api.anthropic.com/v1/messages", { "x-api-key": apiKey, "anthropic-version": "2023-06-01" }, { model: config.model, max_tokens: 500, system: instructions, messages: history, tools: anthropicTools() }));
+    const response = asRecord(await request("https://api.anthropic.com/v1/messages", { "x-api-key": apiKey, "anthropic-version": "2023-06-01" }, { model: config.model, max_tokens: 500, system: instructions(), messages: history, tools: anthropicTools() }));
     const content = Array.isArray(response.content) ? response.content : [];
     const calls = content.filter((item) => asRecord(item).type === "tool_use");
     if (!calls.length) {
@@ -142,7 +187,7 @@ async function answerGemini(config: AssistantConfig, apiKey: string, db: Db, use
   let contents: unknown[] = messages.map((message) => ({ role: message.role === "assistant" ? "model" : "user", parts: [{ text: message.content }] }));
   const geminiTools = [{ functionDeclarations: tools.map(({ name, description, parameters }) => ({ name, description, parameters: geminiSchema(parameters) })) }];
   for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
-    const response = asRecord(await request(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(config.model)}:generateContent`, { "x-goog-api-key": apiKey }, { systemInstruction: { parts: [{ text: instructions }] }, contents, tools: geminiTools }));
+    const response = asRecord(await request(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(config.model)}:generateContent`, { "x-goog-api-key": apiKey }, { systemInstruction: { parts: [{ text: instructions() }] }, contents, tools: geminiTools }));
     const content = asRecord(asRecord(Array.isArray(response.candidates) ? response.candidates[0] : undefined).content);
     const parts = Array.isArray(content.parts) ? content.parts : [];
     const calls = parts.map((part) => asRecord(asRecord(part).functionCall)).filter((call) => typeof call.name === "string");

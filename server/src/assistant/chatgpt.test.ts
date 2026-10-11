@@ -38,6 +38,12 @@ describe("ChatGPT plan response stream", () => {
     expect(completedResponse(stream)).toEqual({ output: [], output_text: "Hi" });
   });
 
+  it("collects output items from the stream when the completed event carries none", () => {
+    const call = { type: "function_call", call_id: "call_1", name: "get_listening_stats", namespace: "musistats", arguments: "{}" };
+    const stream = event({ type: "response.output_item.done", item: call }) + event({ type: "response.completed", response: { status: "completed", output: [] } });
+    expect(completedResponse(stream)).toEqual({ status: "completed", output: [call] });
+  });
+
   it("surfaces a usage-limit failure that arrives mid-stream", () => {
     const stream = event({ type: "response.failed", response: { error: { code: "subscription_sharing_usage_limit_exceeded" } } });
     expect(() => completedResponse(stream)).toThrow(new ChatGPTError("subscription_sharing_usage_limit_exceeded"));

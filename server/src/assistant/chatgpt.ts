@@ -154,12 +154,18 @@ export async function chatgptModels(accessToken: string) {
   return (Array.isArray(body.models) ? body.models : []).map(record).flatMap((model) => model.visibility === "list" && typeof model.slug === "string" ? [{ slug: model.slug, name: typeof model.display_name === "string" ? model.display_name : model.slug }] : []);
 }
 
-// Plan-usage requests must stream; the answer is the response carried by the terminal `response.completed` event.
+// Plan-usage requests must stream. The terminal `response.completed` event confirms success, but on this route its
+// `output` is empty: the messages and tool calls arrive only as `response.output_item.done` events.
 export function completedResponse(stream: string): Record<string, unknown> {
+  const items: unknown[] = [];
   for (const line of stream.split("\n")) {
     if (!line.startsWith("data:")) continue;
     const event = parse(line.slice(5));
-    if (event.type === "response.completed") return record(event.response);
+    if (event.type === "response.output_item.done") items.push(event.item);
+    if (event.type === "response.completed") {
+      const response = record(event.response);
+      return Array.isArray(response.output) && response.output.length ? response : { ...response, output: items };
+    }
     if (event.type === "response.failed") throw new ChatGPTError(errorCode(event.response, "response_failed"));
     if (event.type === "error") throw new ChatGPTError(errorCode({ error: event.error ?? event.code }, "response_failed"));
   }
