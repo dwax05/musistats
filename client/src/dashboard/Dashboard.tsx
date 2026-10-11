@@ -7,7 +7,7 @@ import SegmentedControl from "../ui/SegmentedControl";
 import SettingsPanel from "../settings/SettingsPanel";
 import AssistantPanel from "../assistant/AssistantPanel";
 import CalendarPanel from "../calendar/CalendarPanel";
-import { RANGE_LABELS, isDashboardData, isSessionsData, isStatsData, isTasteReplayData, isTopDataResponse, summarizeLast24Hours, type Album, type Artist, type ChartSeries, type DashboardData, type ListeningSession, type RankedMetric, type StatsData, type TasteReplayFrame, type TasteReplaySource, type TasteReplayStatus, type TimeRange, type TopData, type Track } from "./model";
+import { CALENDAR_YEARS_PER_PAGE, RANGE_LABELS, isDashboardData, isSessionsData, isStatsData, isTasteReplayData, isTopDataResponse, shiftCalendar, summarizeLast24Hours, type Album, type Artist, type CalendarZoom, type ChartSeries, type DashboardData, type ListeningSession, type RankedMetric, type StatsData, type TasteReplayFrame, type TasteReplaySource, type TasteReplayStatus, type TimeRange, type TopData, type Track } from "./model";
 import TasteReplay from "./TasteReplay";
 import TasteComparison from "./TasteComparison";
 
@@ -70,6 +70,11 @@ function CustomRangeCalendar({ dates, initialDate, onChange, onCancel, onApply, 
     const selected = dates.startDate || initialDate;
     return new Date(`${selected.slice(0, 7)}-01T00:00:00.000Z`);
   });
+  const [zoom, setZoom] = useState<CalendarZoom>("days");
+  const year = month.getUTCFullYear();
+  const firstYear = year - (year % CALENDAR_YEARS_PER_PAGE);
+  const heading = zoom === "days" ? monthLabel(month) : zoom === "months" ? String(year) : `${firstYear} - ${firstYear + CALENDAR_YEARS_PER_PAGE - 1}`;
+  const step = zoom === "days" ? "month" : zoom === "months" ? "year" : "years";
   const firstDay = month.getUTCDay();
   const firstVisibleDay = new Date(month);
   firstVisibleDay.setUTCDate(1 - firstDay);
@@ -85,13 +90,17 @@ function CustomRangeCalendar({ dates, initialDate, onChange, onCancel, onApply, 
 
   return <div className="w-80 rounded-2xl border border-border-app bg-surface p-4 shadow-2xl shadow-black/40">
     {header && <div className="mb-4 flex justify-center">{header}</div>}
-    <div className="mb-4 flex items-center justify-between"><button type="button" aria-label="Previous month" onClick={() => setMonth((value) => new Date(Date.UTC(value.getUTCFullYear(), value.getUTCMonth() - 1, 1)))} className="grid h-8 w-8 place-items-center rounded-lg text-muted transition hover:bg-surface-raised hover:text-fg">‹</button><h2 className="text-sm font-semibold text-fg">{monthLabel(month)}</h2><button type="button" aria-label="Next month" onClick={() => setMonth((value) => new Date(Date.UTC(value.getUTCFullYear(), value.getUTCMonth() + 1, 1)))} className="grid h-8 w-8 place-items-center rounded-lg text-muted transition hover:bg-surface-raised hover:text-fg">›</button></div>
-    <div className="grid grid-cols-7 text-center text-[11px] font-semibold uppercase tracking-wide text-muted">{["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => <span key={day} className="pb-2">{day}</span>)}</div>
+    <div className="mb-4 flex items-center justify-between"><button type="button" aria-label={`Previous ${step}`} onClick={() => setMonth((value) => shiftCalendar(value, zoom, -1))} className="grid h-8 w-8 place-items-center rounded-lg text-muted transition hover:bg-surface-raised hover:text-fg">‹</button><button type="button" disabled={zoom === "years"} aria-label={zoom === "years" ? undefined : `${heading}, choose a ${zoom === "days" ? "month" : "year"}`} onClick={() => setZoom(zoom === "days" ? "months" : "years")} className="rounded-lg px-2 py-1 text-sm font-semibold text-fg transition enabled:hover:bg-surface-raised focus-visible:outline-2 focus-visible:outline-accent">{heading}</button><button type="button" aria-label={`Next ${step}`} onClick={() => setMonth((value) => shiftCalendar(value, zoom, 1))} className="grid h-8 w-8 place-items-center rounded-lg text-muted transition hover:bg-surface-raised hover:text-fg">›</button></div>
+    {zoom === "days" ? <><div className="grid grid-cols-7 text-center text-[11px] font-semibold uppercase tracking-wide text-muted">{["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => <span key={day} className="pb-2">{day}</span>)}</div>
     <div className="grid grid-cols-7 gap-y-1">{days.map(({ date, day, currentMonth }) => {
       const endpoint = date === dates.startDate || date === dates.endDate;
       const inRange = Boolean(dates.startDate && dates.endDate && date > dates.startDate && date < dates.endDate);
       return <div key={date} className={inRange ? "bg-accent/20" : ""}><button type="button" aria-pressed={endpoint} aria-label={new Intl.DateTimeFormat(undefined, { dateStyle: "full", timeZone: "UTC" }).format(new Date(`${date}T00:00:00.000Z`))} onClick={() => choose(date)} className={`mx-auto grid h-9 w-9 place-items-center rounded-lg text-sm transition focus-visible:outline-2 focus-visible:outline-accent ${endpoint ? "bg-accent font-bold text-accent-fg shadow-[0_2px_0_#087c30]" : inRange ? "text-accent" : currentMonth ? "text-fg hover:bg-surface-raised" : "text-muted/50 hover:bg-surface-raised"}`}>{day}</button></div>;
-    })}</div>
+    })}</div></> : <div className="grid h-[260px] grid-cols-3 gap-1">{Array.from({ length: 12 }, (_, index) => {
+      const target = zoom === "months" ? new Date(Date.UTC(year, index, 1)) : new Date(Date.UTC(firstYear + index, month.getUTCMonth(), 1));
+      const current = target.valueOf() === month.valueOf();
+      return <button key={index} type="button" aria-current={current ? "date" : undefined} onClick={() => { setMonth(target); setZoom(zoom === "months" ? "days" : "months"); }} className={`rounded-lg text-sm transition hover:bg-surface-raised focus-visible:outline-2 focus-visible:outline-accent ${current ? "font-bold text-accent" : "text-fg"}`}>{zoom === "months" ? new Intl.DateTimeFormat(undefined, { month: "short", timeZone: "UTC" }).format(target) : firstYear + index}</button>;
+    })}</div>}
     <p className="mt-4 text-center text-xs text-muted">{dates.startDate && dates.endDate ? formatCustomRange(dates) : dates.startDate ? "Select an end date" : "Select a start date"}</p>
     <div className="mt-4 flex justify-end gap-2"><button type="button" onClick={onCancel} className="rounded-lg px-3 py-2 text-xs font-semibold text-muted hover:text-fg">Cancel</button><button type="button" disabled={!dates.startDate || !dates.endDate || !canApply} onClick={onApply} className="rounded-lg bg-accent px-3 py-2 text-xs font-semibold text-accent-fg disabled:cursor-not-allowed disabled:opacity-40">Apply</button></div>
   </div>;
