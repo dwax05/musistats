@@ -3,6 +3,7 @@ import { TIME_RANGES, type TimeRange } from "../analytics/range";
 
 const ACCOUNTS_URL = "https://accounts.spotify.com";
 const API_URL = "https://api.spotify.com/v1";
+const MAX_RETRY_AFTER_SECONDS = 30;
 export const SPOTIFY_SCOPES = ["user-read-private", "user-top-read", "user-read-recently-played"];
 export { TIME_RANGES, type TimeRange } from "../analytics/range";
 
@@ -176,6 +177,8 @@ async function spotifyGet(accessToken: string, path: string): Promise<Record<str
     });
     if (response.status === 429 && attempt < maxAttempts - 1) {
       const retryAfter = Number(response.headers.get("retry-after"));
+      // Spotify answers a rate-limit ban with a Retry-After of hours; waiting it out would hang the caller.
+      if (retryAfter > MAX_RETRY_AFTER_SECONDS) throw new Error(`Spotify API rate limited for ${retryAfter}s`);
       const seconds = Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : Math.min(2 ** attempt, 30);
       await new Promise((resolve) => setTimeout(resolve, seconds * 1000));
       continue;
