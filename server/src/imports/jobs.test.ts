@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createQueuedImport, isActiveImport, publicImportSummary } from "./jobs";
+import { createQueuedImport, isActiveImport, publicImportSummary, recoverInterruptedImports } from "./jobs";
 
 describe("import jobs", () => {
   it("creates opaque active jobs without source data", () => {
@@ -21,5 +21,18 @@ describe("import jobs", () => {
     expect(isActiveImport("enriching")).toBe(true);
     expect(isActiveImport("completed")).toBe(false);
     expect(isActiveImport("cancelled")).toBe(false);
+  });
+
+  it("marks interrupted jobs failed when the server restarts", async () => {
+    let update: unknown;
+    await recoverInterruptedImports({
+      collection: () => ({
+        updateMany: async (_filter: unknown, value: unknown) => { update = value; },
+      }),
+    } as never);
+
+    expect(update).toMatchObject({
+      $set: { status: "failed", active: false, failureCode: "server_restarted" },
+    });
   });
 });

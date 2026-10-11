@@ -75,3 +75,10 @@ export async function ensureImportIndexes(db: Db) {
     db.collection("RecentPlays").createIndex({ userId: 1, fingerprint: 1 }, { unique: true, partialFilterExpression: { fingerprint: { $type: "string" } } }),
   ]);
 }
+
+export async function recoverInterruptedImports(db: Db) {
+  await db.collection<StreamingHistoryImport>("StreamingHistoryImports").updateMany(
+    { active: true },
+    { $set: { status: "failed", active: false, failureCode: "server_restarted", completedAt: new Date() } },
+  );
+}
