@@ -1,17 +1,14 @@
+import { randomUUID } from "node:crypto";
 import type { Db, ObjectId } from "mongodb";
 import {
-  SpotifyRateLimitError,
   TIME_RANGES,
   decryptSpotifyToken,
   encryptSpotifyToken,
   getRecentTracks,
   getTopArtists,
   getTopTracks,
-  onSpotifyRateLimit,
   rankTopAlbums,
   refreshSpotifyToken,
-  setSpotifyBlockedUntil,
-  spotifyBlockedUntil,
   type AlbumSummary,
   type ArtistSummary,
   type TimeRange,
@@ -20,6 +17,7 @@ import {
 import { ensureImportIndexes } from "../imports/jobs";
 import { getSpotifyGenresByArtistName } from "./genres";
 import { normalizeForFingerprint } from "../imports/model";
+import { ensureSpotifyRateLimit, spotifyRateLimitUntil, SpotifyRateLimitError } from "./rate-limit";
 
 type SpotifyUser = {
   _id: ObjectId;
@@ -29,11 +27,8 @@ type SpotifyUser = {
 
 type TopItems = Record<TimeRange, { artists: ArtistSummary[]; tracks: TrackSummary[]; albums: AlbumSummary[] }>;
 type TopSnapshot = { userId: string; capturedDay: string; top: Partial<TopItems> };
-type RateLimitConfig = { _id: string; blockedUntil: Date };
-
 const SYNC_INTERVAL_MS = 60 * 60 * 1000;
 const SYNC_CHECK_MS = 5 * 60 * 1000;
-const RATE_LIMIT_CONFIG_ID = "spotifyRateLimit";
 
 // A user is due once an hour, counted from the last attempt, so a restart or a failure does not start a new round.
 export function syncDueFilter(now: Date) {
@@ -46,6 +41,8 @@ export function syncDueFilter(now: Date) {
     ],
   };
 }
+// shortcut: a five-minute lease favors skipping one sync over duplicate Spotify work; add lease renewal if a sync can legitimately run longer.
+const SYNC_LEASE_MS = 5 * 60 * 1_000;
 
 export async function ensureSpotifyIndexes(db: Db) {
   await Promise.all([
@@ -55,18 +52,19 @@ export async function ensureSpotifyIndexes(db: Db) {
     db.collection("RecentPlays").createIndex({ userId: 1, trackId: 1, playedAt: 1 }, { unique: true }),
     db.collection("TopSnapshots").createIndex({ userId: 1, capturedDay: -1 }, { unique: true }),
     db.collection("ArtistNameGenreCache").createIndex({ normalizedName: 1 }, { unique: true }),
+    ensureSpotifyRateLimit(db),
     ensureImportIndexes(db),
   ]);
 }
 
 async function syncConnectedUser(db: Db, user: SpotifyUser, suppliedAccessToken?: string) {
-  const blockedUntil = spotifyBlockedUntil();
+  const blockedUntil = await spotifyRateLimitUntil(db);
   if (blockedUntil) throw new SpotifyRateLimitError(blockedUntil);
   await db.collection("Users").updateOne({ _id: user._id }, { $set: { lastSyncAttemptAt: new Date() } });
 
   let accessToken = suppliedAccessToken;
   if (!accessToken) {
-    const tokens = await refreshSpotifyToken(decryptSpotifyToken(user.encryptedRefreshToken));
+    const tokens = await refreshSpotifyToken(db, decryptSpotifyToken(user.encryptedRefreshToken));
     accessToken = tokens.accessToken;
     if (tokens.refreshToken) {
       await db.collection("Users").updateOne(
@@ -77,7 +75,7 @@ async function syncConnectedUser(db: Db, user: SpotifyUser, suppliedAccessToken?
   }
 
   // shortcut: Spotify returns at most 50 recent plays, follow cursors if users can exceed that between hourly syncs.
-  const recent = await getRecentTracks(accessToken, user.lastPlayedAt?.getTime());
+  const recent = await getRecentTracks(db, accessToken, user.lastPlayedAt?.getTime());
   if (recent.length) {
     await db.collection("RecentPlays").bulkWrite(recent.map((track) => ({
       updateOne: {
@@ -107,8 +105,8 @@ async function syncConnectedUser(db: Db, user: SpotifyUser, suppliedAccessToken?
   if (!hasToday || needsAlbums) {
     const entries = [];
     for (const range of TIME_RANGES) {
-      const artists = await getTopArtists(accessToken, range);
-      const tracks = await getTopTracks(accessToken, range);
+      const artists = await getTopArtists(db, accessToken, range);
+      const tracks = await getTopTracks(db, accessToken, range);
       entries.push([range, { artists, tracks: tracks.map(({ album: _album, ...track }) => track), albums: rankTopAlbums(tracks) }] as const);
     }
     const artists = entries.flatMap(([, items]) => items.artists);
@@ -155,32 +153,39 @@ async function syncConnectedUser(db: Db, user: SpotifyUser, suppliedAccessToken?
 }
 
 export async function syncSpotifyUser(db: Db, user: SpotifyUser, suppliedAccessToken?: string) {
+  const syncLeaseId = randomUUID();
+  const users = db.collection("Users");
+  const claimed = await users.findOneAndUpdate(
+    {
+      _id: user._id,
+      $or: [{ spotifySyncLeaseUntil: { $exists: false } }, { spotifySyncLeaseUntil: { $lte: new Date() } }],
+    },
+    { $set: { spotifySyncLeaseId: syncLeaseId, spotifySyncLeaseUntil: new Date(Date.now() + SYNC_LEASE_MS) } },
+    { returnDocument: "after" },
+  );
+  if (!claimed) return;
   try {
-    await syncConnectedUser(db, user, suppliedAccessToken);
-  } finally {
-    const connected = await db.collection("Users").findOne({ _id: user._id, connected: { $ne: false } });
-    if (!connected) {
-      await Promise.all([
-        db.collection("RecentPlays").deleteMany({ userId: user._id.toString() }),
-        db.collection("TopSnapshots").deleteMany({ userId: user._id.toString() }),
-      ]);
+    try {
+      await syncConnectedUser(db, user, suppliedAccessToken);
+    } finally {
+      const connected = await users.findOne({ _id: user._id, connected: { $ne: false } });
+      if (!connected) {
+        await Promise.all([
+          db.collection("RecentPlays").deleteMany({ userId: user._id.toString() }),
+          db.collection("TopSnapshots").deleteMany({ userId: user._id.toString() }),
+        ]);
+      }
     }
+  } finally {
+    await users.updateOne({ _id: user._id, spotifySyncLeaseId: syncLeaseId }, { $unset: { spotifySyncLeaseId: "", spotifySyncLeaseUntil: "" } });
   }
 }
 
 export function startSpotifySync(db: Db) {
-  const config = db.collection<RateLimitConfig>("Config");
   let running = false;
 
-  // The ban outlives the process, so it is stored where the next start can read it.
-  onSpotifyRateLimit((retryAt) => {
-    console.error(`Spotify rate limited the app until ${new Date(retryAt).toISOString()}; syncs are paused`);
-    void config.updateOne({ _id: RATE_LIMIT_CONFIG_ID }, { $set: { blockedUntil: new Date(retryAt) } }, { upsert: true })
-      .catch((error) => console.error("Could not store the Spotify rate limit:", error));
-  });
-
   async function syncAll() {
-    if (running || spotifyBlockedUntil()) return;
+    if (running || await spotifyRateLimitUntil(db)) return;
     running = true;
     try {
       const users = await db.collection<SpotifyUser>("Users").find(syncDueFilter(new Date())).toArray();
@@ -203,10 +208,7 @@ export function startSpotifySync(db: Db) {
     }
   }
 
-  void config.findOne({ _id: RATE_LIMIT_CONFIG_ID })
-    .then((stored) => { if (stored?.blockedUntil) setSpotifyBlockedUntil(stored.blockedUntil.getTime()); })
-    .catch((error) => console.error("Could not read the stored Spotify rate limit:", error))
-    .then(syncAll);
+  void syncAll();
   const timer = setInterval(() => void syncAll(), SYNC_CHECK_MS);
   timer.unref();
 }

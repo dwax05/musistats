@@ -1,17 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import {
-  SPOTIFY_SCOPES,
-  decryptSpotifyToken,
-  encryptSpotifyToken,
-  getRecentTracks,
-  getTopArtists,
-  getTopTracks,
-  onSpotifyRateLimit,
-  rankTopAlbums,
-  resetSpotifyRateLimit,
-  spotifyAuthorizeUrl,
-  spotifyBlockedUntil,
-} from "./client";
+import { SPOTIFY_SCOPES, decryptSpotifyToken, encryptSpotifyToken, getRecentTracks, getTopArtists, getTopTracks, rankTopAlbums, spotifyAuthorizeUrl } from "./client";
+
+const db = { collection: () => ({ findOne: vi.fn().mockResolvedValue(null), findOneAndUpdate: vi.fn().mockResolvedValue({}), updateOne: vi.fn().mockResolvedValue({}) }) } as never;
 
 beforeEach(() => {
   process.env.SPOTIFY_CLIENT_ID = "client-id";
@@ -20,12 +10,7 @@ beforeEach(() => {
   process.env.SPOTIFY_TOKEN_ENCRYPTION_KEY = "ab".repeat(32);
 });
 
-afterEach(() => {
-  resetSpotifyRateLimit();
-  onSpotifyRateLimit(() => {});
-  vi.unstubAllGlobals();
-  vi.useRealTimers();
-});
+afterEach(() => vi.unstubAllGlobals());
 
 describe("Spotify OAuth", () => {
   it("builds an authorization URL with the minimum stats scopes", () => {
@@ -42,167 +27,30 @@ describe("Spotify OAuth", () => {
   });
 
   it("keeps the metadata analytics need when parsing recent tracks", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        items: [{
-          played_at: "2026-10-10T12:00:00.000Z",
-          track: {
-            id: "track-1",
-            name: "Collaboration",
-            duration_ms: 210000,
-            artists: [{ id: "artist-1", name: "Lead" }, { id: "artist-2", name: "Guest" }],
-            album: {
-              images: [],
-            },
-            external_urls: { spotify: "https://open.spotify.com/track/track-1" },
-          },
-        }],
-      }),
-    }));
-
-    await expect(getRecentTracks("access-token")).resolves.toEqual([expect.objectContaining({
-      durationMs: 210000,
-      artistIds: ["artist-1", "artist-2"],
-    })]);
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({ items: [{ played_at: "2026-10-10T12:00:00.000Z", track: { id: "track-1", name: "Collaboration", duration_ms: 210000, artists: [{ id: "artist-1", name: "Lead" }, { id: "artist-2", name: "Guest" }], album: { images: [] }, external_urls: { spotify: "https://open.spotify.com/track/track-1" } } }] }) }));
+    await expect(getRecentTracks(db, "access-token")).resolves.toEqual([expect.objectContaining({ durationMs: 210000, artistIds: ["artist-1", "artist-2"] })]);
   });
 
   it("keeps album details from top tracks", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        items: [{
-          id: "track-1",
-          name: "Song",
-          duration_ms: 210000,
-          artists: [{ id: "artist-1", name: "Artist" }],
-          album: {
-            id: "album-1",
-            name: "Album",
-            artists: [{ id: "artist-1", name: "Artist" }],
-            images: [{ url: "https://image.test/album.jpg" }],
-            external_urls: { spotify: "https://open.spotify.com/album/album-1" },
-          },
-          external_urls: { spotify: "https://open.spotify.com/track/track-1" },
-        }],
-      }),
-    }));
-
-    await expect(getTopTracks("access-token", "short_term")).resolves.toEqual([expect.objectContaining({
-      album: {
-        id: "album-1",
-        name: "Album",
-        artists: ["Artist"],
-        imageUrl: "https://image.test/album.jpg",
-        externalUrl: "https://open.spotify.com/album/album-1",
-      },
-    })]);
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({ items: [{ id: "track-1", name: "Song", duration_ms: 210000, artists: [{ id: "artist-1", name: "Artist" }], album: { id: "album-1", name: "Album", artists: [{ id: "artist-1", name: "Artist" }], images: [{ url: "https://image.test/album.jpg" }], external_urls: { spotify: "https://open.spotify.com/album/album-1" } }, external_urls: { spotify: "https://open.spotify.com/track/track-1" } }] }) }));
+    await expect(getTopTracks(db, "access-token", "short_term")).resolves.toEqual([expect.objectContaining({ album: { id: "album-1", name: "Album", artists: ["Artist"], imageUrl: "https://image.test/album.jpg", externalUrl: "https://open.spotify.com/album/album-1" } })]);
   });
 
   it("parses genres from Spotify top artists", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        items: [{
-          id: "artist-1",
-          name: "Artist",
-          genres: [" indie pop ", "dream pop", 4],
-          images: [],
-          external_urls: { spotify: "https://open.spotify.com/artist/artist-1" },
-        }],
-      }),
-    }));
-
-    await expect(getTopArtists("access-token", "short_term")).resolves.toEqual([
-      expect.objectContaining({ id: "artist-1", name: "Artist", genres: ["indie pop", "dream pop"] }),
-    ]);
-  });
-
-  it("honors Spotify Retry-After values instead of retrying early", async () => {
-    vi.useFakeTimers();
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce(new Response(null, { status: 429, headers: { "retry-after": "5" } }))
-      .mockResolvedValueOnce(new Response(null, { status: 429, headers: { "retry-after": "2" } }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({
-        items: [{ id: "match", name: "Example Artist", genres: ["ambient"] }],
-      })));
-    vi.stubGlobal("fetch", fetchMock);
-
-    const result = getTopArtists("access-token", "short_term");
-    await vi.advanceTimersByTimeAsync(0);
-    await vi.advanceTimersByTimeAsync(4_999);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    await vi.advanceTimersByTimeAsync(1);
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    await vi.advanceTimersByTimeAsync(1_999);
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    await vi.advanceTimersByTimeAsync(1);
-    await expect(result).resolves.toEqual([expect.objectContaining({ id: "match", genres: ["ambient"] })]);
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({ items: [{ id: "artist-1", name: "Artist", genres: [" indie pop ", "dream pop", 4], images: [], external_urls: { spotify: "https://open.spotify.com/artist/artist-1" } }] }) }));
+    await expect(getTopArtists(db, "access-token", "short_term")).resolves.toEqual([expect.objectContaining({ id: "artist-1", name: "Artist", genres: ["indie pop", "dream pop"] })]);
   });
 
   it("ranks albums by their appearances in top tracks", () => {
     const album = (id: string, name: string) => ({ id, name, artists: ["Artist"], imageUrl: null, externalUrl: "" });
     const track = (id: string, value: ReturnType<typeof album>) => ({ id, name: id, artists: ["Artist"], imageUrl: null, externalUrl: "", album: value });
-
-    expect(rankTopAlbums([
-      track("track-1", album("album-1", "First")),
-      track("track-2", album("album-2", "Second")),
-      track("track-3", album("album-1", "First")),
-    ])).toEqual([
-      album("album-1", "First"),
-      album("album-2", "Second"),
-    ]);
+    expect(rankTopAlbums([track("track-1", album("album-1", "First")), track("track-2", album("album-2", "Second")), track("track-3", album("album-1", "First"))])).toEqual([album("album-1", "First"), album("album-2", "Second")]);
   });
 
-  it("fails immediately when Spotify asks for a long Retry-After", async () => {
+  it("records every Spotify Retry-After without retrying the request", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 429, headers: { "retry-after": "41882" } }));
     vi.stubGlobal("fetch", fetchMock);
-
-    await expect(getTopArtists("access-token", "short_term")).rejects.toThrow("Spotify API rate limited until");
+    await expect(getTopArtists(db, "access-token", "short_term")).rejects.toThrow("rate limited until");
     expect(fetchMock).toHaveBeenCalledTimes(1);
-  });
-
-  it("stops calling Spotify until a long Retry-After has passed", async () => {
-    const listener = vi.fn();
-    onSpotifyRateLimit(listener);
-    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 429, headers: { "retry-after": "3600" } }));
-    vi.stubGlobal("fetch", fetchMock);
-
-    await expect(getTopArtists("access-token", "short_term")).rejects.toThrow("rate limited");
-    await expect(getRecentTracks("other-users-token")).rejects.toThrow("rate limited");
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(listener).toHaveBeenCalledWith(spotifyBlockedUntil());
-    expect(spotifyBlockedUntil()).toBeGreaterThan(Date.now() + 3_500_000);
-  });
-
-  it("sends one request at a time and holds the rest during a short Retry-After", async () => {
-    vi.useFakeTimers();
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce(new Response(null, { status: 429, headers: { "retry-after": "5" } }))
-      .mockImplementation(async () => new Response(JSON.stringify({ items: [] })));
-    vi.stubGlobal("fetch", fetchMock);
-
-    const results = Promise.all([
-      getTopArtists("access-token", "short_term"),
-      getTopArtists("access-token", "medium_term"),
-      getTopArtists("access-token", "long_term"),
-    ]);
-    await vi.advanceTimersByTimeAsync(4_999);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    await vi.advanceTimersByTimeAsync(1_000);
-    await expect(results).resolves.toEqual([[], [], []]);
-    expect(fetchMock).toHaveBeenCalledTimes(4);
-  });
-
-  it("gives up after three rate-limited attempts", async () => {
-    vi.useFakeTimers();
-    const fetchMock = vi.fn().mockImplementation(async () => new Response(null, { status: 429, headers: { "retry-after": "1" } }));
-    vi.stubGlobal("fetch", fetchMock);
-
-    const result = expect(getTopArtists("access-token", "short_term")).rejects.toThrow("after 3 attempts");
-    await vi.advanceTimersByTimeAsync(10_000);
-    await result;
-    expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 });
