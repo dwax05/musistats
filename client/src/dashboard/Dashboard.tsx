@@ -24,7 +24,16 @@ const topPages: { value: Page; label: string }[] = [
 ];
 
 function SettingsIcon() {
-  return <span aria-hidden="true" className="flex h-5 w-5 items-center justify-center text-xl leading-none" style={{ fontFamily: '"JetBrainsMono Nerd Font", "JetBrainsMono NF", monospace' }}>󰒓</span>;
+  return <svg viewBox="0 0 24 24" aria-hidden="true" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round">
+    <g transform="translate(0.5 0)">
+      <path d="M12 3.2a1.8 1.8 0 0 1 1.8 1.8v1.2a5.4 5.4 0 0 1 1.7.8l.9-.9a1.8 1.8 0 1 1 2.5 2.5l-.9.9a5.4 5.4 0 0 1 .8 1.7h1.2a1.8 1.8 0 1 1 0 3.6h-1.2a5.4 5.4 0 0 1-.8 1.7l.9.9a1.8 1.8 0 1 1-2.5 2.5l-.9-.9a5.4 5.4 0 0 1-1.7.8v1.2a1.8 1.8 0 1 1-3.6 0v-1.2a5.4 5.4 0 0 1-1.7-.8l-.9.9a1.8 1.8 0 1 1-2.5-2.5l.9-.9a5.4 5.4 0 0 1-.8-1.7H3.2a1.8 1.8 0 1 1 0-3.6h1.2a5.4 5.4 0 0 1 .8-1.7L4.3 8.1a1.8 1.8 0 1 1 2.5-2.5l.9.9a5.4 5.4 0 0 1 1.7-.8V4.5A1.8 1.8 0 0 1 12 3.2Z" />
+      <circle cx="12" cy="12" r="4.2" />
+    </g>
+    <g transform="translate(12.3 3.7) scale(0.55)">
+      <path d="M12 3.2a1.8 1.8 0 0 1 1.8 1.8v1.2a5.4 5.4 0 0 1 1.7.8l.9-.9a1.8 1.8 0 1 1 2.5 2.5l-.9.9a5.4 5.4 0 0 1 .8 1.7h1.2a1.8 1.8 0 1 1 0 3.6h-1.2a5.4 5.4 0 0 1-.8 1.7l.9.9a1.8 1.8 0 1 1-2.5 2.5l-.9-.9a5.4 5.4 0 0 1-1.7.8v1.2a1.8 1.8 0 1 1-3.6 0v-1.2a5.4 5.4 0 0 1-1.7-.8l-.9.9a1.8 1.8 0 1 1-2.5-2.5l.9-.9a5.4 5.4 0 0 1-.8-1.7H3.2a1.8 1.8 0 1 1 0-3.6h1.2a5.4 5.4 0 0 1 .8-1.7L4.3 8.1a1.8 1.8 0 1 1 2.5-2.5l.9.9a5.4 5.4 0 0 1 1.7-.8V4.5A1.8 1.8 0 0 1 12 3.2Z" />
+      <circle cx="12" cy="12" r="4.2" />
+    </g>
+  </svg>;
 }
 
 function calendarDate(date: Date) {
@@ -140,7 +149,7 @@ function LineChart({ title, series, format }: { title: string; series: ChartSeri
 }
 
 function StatsPanel({ stats }: { stats: StatsData }) {
-  return <div className="grid gap-6 lg:grid-cols-2"><MetricBarChart title="Top artists by plays" metrics={stats.topArtistsByPlays} format={(value) => `${Math.round(value)} plays`} /><MetricBarChart title="Top artists by listening time" metrics={stats.topArtistsByMinutes} format={(value) => `${Math.round(value)}m`} /><TimeBarChart title="Listening distribution over time" series={stats.listeningDistribution} format={(value) => `${Math.round(value)}m`} /><LineChart title="Songs listened over time" series={stats.songsListened} format={(value) => String(Math.round(value))} /><LineChart title="Different artists listened over time" series={stats.artistsListened} format={(value) => String(Math.round(value))} /></div>;
+  return <div className="grid gap-6 lg:grid-cols-2"><MetricBarChart title="Top artists by plays" metrics={stats.topArtistsByPlays} format={(value) => `${Math.round(value)} plays`} /><MetricBarChart title="Top artists by listening time" metrics={stats.topArtistsByMinutes} format={(value) => `${Math.round(value)}m`} /><TimeBarChart title="Listening distribution over time" series={stats.listeningDistribution} format={(value) => `${Math.round(value)}m`} /><LineChart title="Songs listened to over time" series={stats.songsListened} format={(value) => String(Math.round(value))} /><LineChart title="Different artists listened to over time" series={stats.artistsListened} format={(value) => String(Math.round(value))} /></div>;
 }
 
 function StatCard({ label, value, fullWidth = false, imageUrl, imageAlt, round = false }: { label: string; value: string | number; fullWidth?: boolean; imageUrl?: string | null; imageAlt?: string; round?: boolean }) {
@@ -278,14 +287,14 @@ export default function Dashboard({ initialData, initialSessions, initialStats, 
   const last24Hours = data?.last24Hours ?? summarizeLast24Hours(data?.recent ?? []);
   const contentTitle = page === "settings" ? "Settings" : page === "assistant" ? "Ask MusiStats" : page === "stats" ? "All stats" : page === "songs" ? "Top songs" : page === "artists" ? "Top artists" : page === "albums" ? "Top albums" : "Longest listening sessions";
   const summaryStats = [
-    { label: "Songs listened in the last 24 hours", value: last24Hours.songs },
-    { label: "Time listened in the last 24 hours", value: formatListeningDuration(last24Hours.minutes, last24Hours.minutesComplete) },
-    { label: "Artists listened in the last 24 hours", value: last24Hours.artists },
-    { label: "Most listened artist", value: last24Hours.topArtist?.name ?? "—", imageUrl: last24Hours.topArtist?.imageUrl, imageAlt: last24Hours.topArtist?.name, round: true },
-    { label: "Most listened song", value: last24Hours.topTrack?.name ?? "—", imageUrl: last24Hours.topTrack?.imageUrl, imageAlt: last24Hours.topTrack?.name },
+    { label: "Songs listened to in the last 24 hours", value: last24Hours.songs },
+    { label: "Time listened to in the last 24 hours", value: formatListeningDuration(last24Hours.minutes, last24Hours.minutesComplete) },
+    { label: "Artists listened to in the last 24 hours", value: last24Hours.artists },
+    { label: "Most listened to artist", value: last24Hours.topArtist?.name ?? "—", imageUrl: last24Hours.topArtist?.imageUrl, imageAlt: last24Hours.topArtist?.name, round: true },
+    { label: "Most listened to song", value: last24Hours.topTrack?.name ?? "—", imageUrl: last24Hours.topTrack?.imageUrl, imageAlt: last24Hours.topTrack?.name },
   ];
 
-  const rangeOptions: { value: SelectedRange; label: string }[] = [...(Object.keys(RANGE_LABELS) as TimeRange[]).map((value) => ({ value, label: RANGE_LABELS[value] })), { value: "custom", label: "Custom" }];
+  const rangeOptions: { value: SelectedRange; label: string }[] = [...(Object.keys(RANGE_LABELS) as TimeRange[]).map((value) => ({ value, label: RANGE_LABELS[value] })), { value: "custom", label: "All time" }];
   const changeRange = (value: SelectedRange) => {
     if (value === "custom") {
       setCustomDraft(customDates ?? { startDate: "", endDate: "" });

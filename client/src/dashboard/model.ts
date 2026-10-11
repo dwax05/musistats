@@ -87,9 +87,9 @@ export type DashboardData = ApiResponse & {
 };
 
 export const RANGE_LABELS: Record<TimeRange, string> = {
-  short_term: "4 weeks",
+  short_term: "1 month",
   medium_term: "6 months",
-  long_term: "All time",
+  long_term: "All year",
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
