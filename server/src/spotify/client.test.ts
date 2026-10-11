@@ -6,8 +6,11 @@ import {
   getRecentTracks,
   getTopArtists,
   getTopTracks,
+  onSpotifyRateLimit,
   rankTopAlbums,
+  resetSpotifyRateLimit,
   spotifyAuthorizeUrl,
+  spotifyBlockedUntil,
 } from "./client";
 
 beforeEach(() => {
@@ -18,6 +21,8 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  resetSpotifyRateLimit();
+  onSpotifyRateLimit(() => {});
   vi.unstubAllGlobals();
   vi.useRealTimers();
 });
@@ -124,7 +129,7 @@ describe("Spotify OAuth", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const result = getTopArtists("access-token", "short_term");
-    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    await vi.advanceTimersByTimeAsync(0);
     await vi.advanceTimersByTimeAsync(4_999);
     expect(fetchMock).toHaveBeenCalledTimes(1);
     await vi.advanceTimersByTimeAsync(1);
@@ -154,7 +159,50 @@ describe("Spotify OAuth", () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 429, headers: { "retry-after": "41882" } }));
     vi.stubGlobal("fetch", fetchMock);
 
-    await expect(getTopArtists("access-token", "short_term")).rejects.toThrow("rate limited for 41882s");
+    await expect(getTopArtists("access-token", "short_term")).rejects.toThrow("Spotify API rate limited until");
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("stops calling Spotify until a long Retry-After has passed", async () => {
+    const listener = vi.fn();
+    onSpotifyRateLimit(listener);
+    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 429, headers: { "retry-after": "3600" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(getTopArtists("access-token", "short_term")).rejects.toThrow("rate limited");
+    await expect(getRecentTracks("other-users-token")).rejects.toThrow("rate limited");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(listener).toHaveBeenCalledWith(spotifyBlockedUntil());
+    expect(spotifyBlockedUntil()).toBeGreaterThan(Date.now() + 3_500_000);
+  });
+
+  it("sends one request at a time and holds the rest during a short Retry-After", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(null, { status: 429, headers: { "retry-after": "5" } }))
+      .mockImplementation(async () => new Response(JSON.stringify({ items: [] })));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const results = Promise.all([
+      getTopArtists("access-token", "short_term"),
+      getTopArtists("access-token", "medium_term"),
+      getTopArtists("access-token", "long_term"),
+    ]);
+    await vi.advanceTimersByTimeAsync(4_999);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1_000);
+    await expect(results).resolves.toEqual([[], [], []]);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+  });
+
+  it("gives up after three rate-limited attempts", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn().mockImplementation(async () => new Response(null, { status: 429, headers: { "retry-after": "1" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = expect(getTopArtists("access-token", "short_term")).rejects.toThrow("after 3 attempts");
+    await vi.advanceTimersByTimeAsync(10_000);
+    await result;
+    expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 });

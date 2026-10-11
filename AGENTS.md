@@ -61,7 +61,9 @@ cd server && npm run typecheck && npm test
 
 ## Data
 
-MongoDB collections: `Users`, `RecentPlays` (one document per play: `userId`, `name`, `artists[]`, `albumName`, `durationMs`, `playedAt`, `trackId`), `TopSnapshots`, `StreamingHistoryImports`, `ArtistNameGenreCache`, and `Config`. Indexes are created at startup in `server/src/spotify/sync.ts` and `server/src/imports/jobs.ts`. Recent plays sync hourly.
+MongoDB collections: `Users`, `RecentPlays` (one document per play: `userId`, `name`, `artists[]`, `albumName`, `durationMs`, `playedAt`, `trackId`), `TopSnapshots`, `StreamingHistoryImports`, `ArtistNameGenreCache`, and `Config`. Indexes are created at startup in `server/src/spotify/sync.ts` and `server/src/imports/jobs.ts`. Recent plays sync hourly per user, counted from `lastSyncAttemptAt`, so restarts do not trigger extra syncs.
+
+Every Spotify API request goes through `spotifyGet` in `server/src/spotify/client.ts`, which sends one request at a time and stops all requests while Spotify has rate limited the app (stored in `Config` as `spotifyRateLimit`). Do not call `api.spotify.com` any other way.
 
 ## Assistant
 

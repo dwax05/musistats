@@ -9,10 +9,12 @@ import {
   type TokenPayload,
 } from "./tokens";
 import {
+  SpotifyRateLimitError,
   encryptSpotifyToken,
   exchangeSpotifyCode,
   getSpotifyProfile,
   spotifyAuthorizeUrl,
+  spotifyBlockedUntil,
 } from "../spotify/client";
 import { syncSpotifyUser } from "../spotify/sync";
 
@@ -88,6 +90,7 @@ export function registerAuthRoutes(app: Express, db: Db) {
   const users = db.collection("Users");
 
   app.get("/api/auth/spotify", (_req, res) => {
+    if (spotifyBlockedUntil()) return res.redirect("/?auth_error=rate_limited");
     try {
       const state = randomBytes(24).toString("base64url");
       res.cookie(OAUTH_STATE_COOKIE, state, { ...stateCookieOptions(), maxAge: 10 * 60 * 1000 });
@@ -140,14 +143,14 @@ export function registerAuthRoutes(app: Express, db: Db) {
         _id: user._id,
         encryptedRefreshToken: user.encryptedRefreshToken,
         lastPlayedAt: user.lastPlayedAt,
-      }, tokens.accessToken, true).catch((error) => {
+      }, tokens.accessToken).catch((error) => {
         console.error(`Initial Spotify sync failed for ${user._id}:`, error);
       });
 
       return res.redirect("/");
     } catch (error) {
       console.error("Spotify OAuth callback failed:", error);
-      return res.redirect("/?auth_error=spotify");
+      return res.redirect(error instanceof SpotifyRateLimitError ? "/?auth_error=rate_limited" : "/?auth_error=spotify");
     }
   });
 

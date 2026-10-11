@@ -4,6 +4,8 @@ import { TIME_RANGES, type TimeRange } from "../analytics/range";
 const ACCOUNTS_URL = "https://accounts.spotify.com";
 const API_URL = "https://api.spotify.com/v1";
 const MAX_RETRY_AFTER_SECONDS = 30;
+const MAX_ATTEMPTS = 3;
+const MIN_REQUEST_SPACING_MS = 250;
 export const SPOTIFY_SCOPES = ["user-read-private", "user-top-read", "user-read-recently-played"];
 export { TIME_RANGES, type TimeRange } from "../analytics/range";
 
@@ -168,25 +170,78 @@ async function tokenRequest(body: URLSearchParams): Promise<SpotifyTokens> {
   return { accessToken, ...(refreshToken ? { refreshToken } : {}) };
 }
 
-async function spotifyGet(accessToken: string, path: string): Promise<Record<string, unknown>> {
-  const maxAttempts = 5;
-  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+export class SpotifyRateLimitError extends Error {
+  constructor(readonly retryAt: number) {
+    super(`Spotify API rate limited until ${new Date(retryAt).toISOString()}`);
+    this.name = "SpotifyRateLimitError";
+  }
+}
+
+// Spotify limits the whole app, not one user, so every request shares one queue and one pause.
+let blockedUntil = 0;
+let lastRequestAt = 0;
+let queue: Promise<unknown> = Promise.resolve();
+let onRateLimit: (retryAt: number) => void = () => {};
+
+export function spotifyBlockedUntil(): number {
+  return blockedUntil > Date.now() ? blockedUntil : 0;
+}
+
+export function setSpotifyBlockedUntil(retryAt: number) {
+  blockedUntil = retryAt;
+}
+
+export function resetSpotifyRateLimit() {
+  blockedUntil = 0;
+  lastRequestAt = 0;
+  queue = Promise.resolve();
+}
+
+export function onSpotifyRateLimit(listener: (retryAt: number) => void) {
+  onRateLimit = listener;
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function waitForTurn() {
+  const blockedFor = blockedUntil - Date.now();
+  // A ban lasts hours; asking again before it ends only spends more of the limit.
+  if (blockedFor > MAX_RETRY_AFTER_SECONDS * 1000) throw new SpotifyRateLimitError(blockedUntil);
+  const spacing = lastRequestAt + MIN_REQUEST_SPACING_MS - Date.now();
+  const wait = Math.max(blockedFor, spacing);
+  if (wait > 0) await sleep(wait);
+}
+
+async function requestSpotify(accessToken: string, path: string): Promise<Record<string, unknown>> {
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
+    await waitForTurn();
+    lastRequestAt = Date.now();
     const response = await fetch(`${API_URL}${path}`, {
       signal: AbortSignal.timeout(10_000),
       headers: { Authorization: `Bearer ${accessToken}` },
     });
-    if (response.status === 429 && attempt < maxAttempts - 1) {
+    if (response.status === 429) {
       const retryAfter = Number(response.headers.get("retry-after"));
-      // Spotify answers a rate-limit ban with a Retry-After of hours; waiting it out would hang the caller.
-      if (retryAfter > MAX_RETRY_AFTER_SECONDS) throw new Error(`Spotify API rate limited for ${retryAfter}s`);
       const seconds = Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : Math.min(2 ** attempt, 30);
-      await new Promise((resolve) => setTimeout(resolve, seconds * 1000));
+      blockedUntil = Date.now() + seconds * 1000;
+      if (seconds > MAX_RETRY_AFTER_SECONDS) {
+        onRateLimit(blockedUntil);
+        throw new SpotifyRateLimitError(blockedUntil);
+      }
       continue;
     }
     if (!response.ok) throw new Error(`Spotify API request failed (${response.status})`);
     return asRecord(await response.json());
   }
-  throw new Error(`Spotify API rate limit retry failed after ${maxAttempts} attempts`);
+  throw new Error(`Spotify API rate limit retry failed after ${MAX_ATTEMPTS} attempts`);
+}
+
+function spotifyGet(accessToken: string, path: string): Promise<Record<string, unknown>> {
+  const result = queue.then(() => requestSpotify(accessToken, path));
+  queue = result.catch(() => undefined);
+  return result;
 }
 
 export function spotifyAuthorizeUrl(state: string): string {
