@@ -15,7 +15,8 @@ describe("analytics ranges", () => {
 
     expect(rangeStart("short_term", now)?.toISOString()).toBe("2026-08-03T12:34:56.789Z");
     expect(rangeStart("medium_term", now)?.toISOString()).toBe("2026-02-28T12:34:56.789Z");
-    expect(rangeStart("long_term", now)).toBeNull();
+    expect(rangeStart("long_term", now)?.toISOString()).toBe("2025-08-31T12:34:56.789Z");
+    expect(rangeStart("long_term", new Date("2028-02-29T00:00:00.000Z"))?.toISOString()).toBe("2027-02-28T00:00:00.000Z");
   });
 
   it("accepts inclusive custom calendar dates and rejects malformed ranges", () => {
