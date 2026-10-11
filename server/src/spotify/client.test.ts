@@ -149,4 +149,12 @@ describe("Spotify OAuth", () => {
       album("album-2", "Second"),
     ]);
   });
+
+  it("fails immediately when Spotify asks for a long Retry-After", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 429, headers: { "retry-after": "41882" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(getTopArtists("access-token", "short_term")).rejects.toThrow("rate limited for 41882s");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
 });
