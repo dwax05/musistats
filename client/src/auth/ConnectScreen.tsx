@@ -27,7 +27,7 @@ export default function ConnectScreen() {
 
         {authError && (
           <div role="alert" className="mt-6 rounded-xl border border-error/30 bg-error/10 px-4 py-3 text-sm text-error">
-            Spotify connection was cancelled or could not be completed. Please try again.
+            {authError === "rate_limited" ? "Spotify is temporarily limiting MusiStats. Please try again later." : "Spotify connection was cancelled or could not be completed. Please try again."}
           </div>
         )}
 
