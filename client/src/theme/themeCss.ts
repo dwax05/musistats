@@ -1,7 +1,6 @@
 export const THEME_VARIABLE_GROUPS = [
-  { label: "Surfaces", variables: ["--bg", "--surface", "--surface-raised", "--border", "--fg", "--muted"] },
-  { label: "Accents", variables: ["--accent", "--accent-fg"] },
-  { label: "Status", variables: ["--error"] },
+  { label: "Page", variables: ["--bg", "--fg", "--surface", "--surface-raised", "--border", "--muted"] },
+  { label: "Accents", variables: ["--accent", "--accent-fg", "--error"] },
 ] as const;
 
 export type ThemeVariable = (typeof THEME_VARIABLE_GROUPS)[number]["variables"][number];
@@ -79,4 +78,9 @@ export function computedThemeVariables(): ThemeVariables {
     if (hex) variables[key as ThemeVariable] = hex.toLowerCase();
   }
   return variables;
+}
+// Black or white, whichever reads better on the given #rrggbb background.
+export function readableOn(hex: string) {
+  const rgb = parseInt(hex.slice(1), 16);
+  return ((rgb >> 16) * 299 + ((rgb >> 8) & 255) * 587 + (rgb & 255) * 114) / 1000 > 150 ? "#000000" : "#ffffff";
 }

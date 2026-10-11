@@ -1,5 +1,5 @@
 /* Keep surface colors tokenized so appearance changes apply across every page. */
-:root {
+:root, [data-theme="ucf-knights"] {
   --color-scheme: dark;
   --bg: #0d0d0d;
   --surface: #171717;
@@ -27,8 +27,8 @@
 [data-theme="nord"] {
   --color-scheme: dark; --bg: #2e3440; --surface: #3b4252; --surface-raised: #434c5e; --fg: #eceff4; --muted: #d8dee9; --accent: #88c0d0; --accent-fg: #2e3440; --error: #bf616a; --border: #4c566a;
 }
-[data-theme="one-dark"] {
-  --color-scheme: dark; --bg: #282c34; --surface: #21252b; --surface-raised: #353b45; --fg: #abb2bf; --muted: #7f848e; --accent: #61afef; --accent-fg: #1e2127; --error: #e06c75; --border: #3e4451;
+[data-theme="spotify"] {
+  --color-scheme: dark; --bg: #080b09; --surface: #111713; --surface-raised: #19211c; --fg: #f3f7f4; --muted: #8d9d93; --accent: #1db954; --accent-fg: #041108; --error: #ff6b6b; --border: #27322b;
 }
 [data-theme="gruvbox"] {
   --color-scheme: dark; --bg: #282828; --surface: #32302f; --surface-raised: #3c3836; --fg: #ebdbb2; --muted: #a89984; --accent: #fabd2f; --accent-fg: #282828; --error: #fb4934; --border: #504945;
