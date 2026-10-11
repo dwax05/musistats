@@ -62,7 +62,7 @@ function rankImportedArtists(plays: ImportedTastePlay[]): string[] {
     .map(({ name }) => name);
 }
 
-function scheduleGenreEnrichment(
+export function scheduleGenreEnrichment(
   userId: string,
   db: Db,
   artistNames: string[],
