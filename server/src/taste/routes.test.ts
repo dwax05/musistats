@@ -11,9 +11,13 @@ beforeEach(() => {
   process.env.SPOTIFY_CLIENT_SECRET = "client-secret";
   process.env.SPOTIFY_TOKEN_ENCRYPTION_KEY = "ab".repeat(32);
   delete process.env.LASTFM_API_KEY;
+  // The fixtures are dated October 2026 and long_term only reaches back 12 months.
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-10-11T00:00:00.000Z"));
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllGlobals();
   delete process.env.LASTFM_API_KEY;
 });

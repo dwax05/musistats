@@ -64,7 +64,7 @@ async function tasteFor(db: Db, userId: string): Promise<string> {
 }
 // Every tool takes the same period. Dates are empty strings rather than optional so the schema stays valid for every provider.
 const period = {
-  range: { type: "string", enum: [...TIME_RANGES, CUSTOM_TIME_RANGE], description: "short_term is the last 4 weeks, medium_term is the last 6 months, long_term is all available history. Use custom with startDate and endDate for any other period, such as one day, a month, or a year." },
+  range: { type: "string", enum: [...TIME_RANGES, CUSTOM_TIME_RANGE], description: "short_term is the last 4 weeks, medium_term is the last 6 months, long_term is the last 12 months. Use custom with startDate and endDate for any other period, such as one day, a month, a calendar year, or all history (use an early startDate)." },
   startDate: { type: "string", description: "First day of a custom period as YYYY-MM-DD in UTC. Empty string unless range is custom." },
   endDate: { type: "string", description: "Last day of a custom period, inclusive, as YYYY-MM-DD in UTC. Empty string unless range is custom." },
 };
